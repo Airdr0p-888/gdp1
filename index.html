@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Moda Fair Mint 控制台</title>
     <link rel="stylesheet" href="./styles.css" />
-    <script type="module" src="./app.js?v=20260621-deploy-form-fix"></script>
+    <script type="module" src="./app.js?v=20260621-dividend-visible"></script>
   </head>
   <body>
     <div class="shell">
@@ -50,6 +50,13 @@
             <label>最大 Mint 次数<input name="maxMintCount" type="number" value="1000" min="1" required /></label>
             <label>用户拿到代币比例 %<input name="userMintShare" type="number" value="70" min="0" max="100" step="0.01" required /></label>
             <label>进入流动性的募集资金 %<input name="lpFundShare" type="number" value="80" min="0" max="100" step="0.01" required /></label>
+            <label>买入税 %<input name="buyTax" type="number" value="0" min="0" max="10" step="0.01" required /></label>
+            <label>卖出税 %<input name="sellTax" type="number" value="0" min="0" max="10" step="0.01" required /></label>
+            <label>转账税 %<input name="transferTax" type="number" value="0" min="0" max="10" step="0.01" required /></label>
+            <label>税收给营销 %<input name="marketingShare" type="number" value="100" min="0" max="100" step="0.01" required /></label>
+            <label>税收销毁 %<input name="burnShare" type="number" value="0" min="0" max="100" step="0.01" required /></label>
+            <label>税收回流 LP %<input name="lpShare" type="number" value="0" min="0" max="100" step="0.01" required /></label>
+            <label>税收持币分红 %<input name="dividendShare" type="number" value="0" min="0" max="100" step="0.01" required /></label>
             <label>开盘模式<select name="launchMode"><option value="0">手动</option><option value="1">定时</option><option value="2">Mint 满自动</option></select></label>
             <label>开盘时间<input name="launchTime" type="datetime-local" /></label>
             <label>营销钱包<input name="marketingWallet" placeholder="默认使用部署钱包" /></label>
@@ -112,8 +119,8 @@
               <div class="row"><select id="whitelistEnabled"><option value="true">开启白名单</option><option value="false">关闭白名单</option></select><button data-action="setWhitelistEnabled">保存</button></div>
               <div class="row"><input id="listAddress" placeholder="钱包地址" /><select id="listValue"><option value="true">加入</option><option value="false">移除</option></select></div>
               <button data-action="setWhitelist">白名单</button>
-              <button data-action="setBlacklist">黑名单</button>
-              <button data-action="setExcludedFromLimits">交易限制排除</button>
+              <textarea id="batchListAddresses" rows="6" placeholder="批量地址，一行一个"></textarea>
+              <button data-action="batchSetWhitelist">批量白名单</button>
               <button data-action="setExcludedFromFee">手续费排除</button>
             </article>
 
@@ -122,7 +129,7 @@
               <div class="row"><input id="buyTax" placeholder="买税 BP" /><button data-action="setBuyTax">设置买税</button></div>
               <div class="row"><input id="sellTax" placeholder="卖税 BP" /><button data-action="setSellTax">设置卖税</button></div>
               <div class="row"><input id="transferTax" placeholder="转账税 BP" /><button data-action="setTransferTax">设置转账税</button></div>
-              <div class="row three"><input id="marketingShare" placeholder="营销 BP" /><input id="burnShare" placeholder="销毁 BP" /><input id="lpShare" placeholder="LP BP" /></div>
+              <div class="row four"><input id="marketingShare" placeholder="营销 BP" /><input id="burnShare" placeholder="销毁 BP" /><input id="lpShare" placeholder="LP BP" /><input id="dividendShare" placeholder="分红 BP" /></div>
               <button data-action="setTaxShares">设置分配比例</button>
               <div class="row"><input id="marketingWallet" placeholder="营销钱包" /><button data-action="setMarketingWallet">设置钱包</button></div>
               <div class="row"><input id="swapThreshold" placeholder="Swap 阈值" /><button data-action="setSwapThreshold">设置阈值</button></div>

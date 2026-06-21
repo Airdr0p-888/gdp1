@@ -46,7 +46,6 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     mapping(address => bool) public hasMinted;
     bool public whitelistEnabled;
     mapping(address => bool) public whitelist;
-    mapping(address => bool) public blacklist;
     mapping(address => bool) public isExcludedFromLimits;
     mapping(address => bool) public isExcludedFromFee;
     uint256 public buyTax;
@@ -55,6 +54,7 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     uint256 public marketingShare;
     uint256 public burnShare;
     uint256 public lpShare;
+    uint256 public dividendShare;
     address public marketingWallet;
     address public deadWallet;
     bool public swapEnabled = true;
@@ -62,6 +62,7 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     uint256 public swapThreshold;
     uint256 public tokenDividendPerShare;
     uint256 public lpDividendPerShare;
+    uint256 public dividendReserve;
     uint256 private constant ACC = 1e36;
     mapping(address => uint256) public tokenDividendDebt;
     mapping(address => uint256) public lpDividendDebt;
@@ -110,7 +111,7 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     function mintBNB() external payable nonReentrant whenNotPaused { require(mintMode == MintMode.BNB, "not BNB mode"); require(msg.value == mintPrice, "bad BNB amount"); _mintFlow(msg.sender, msg.value); }
     function mintUSDT() external nonReentrant whenNotPaused { require(mintMode == MintMode.USDT, "not USDT mode"); IERC20(usdtAddress).safeTransferFrom(msg.sender, address(this), mintPrice); _mintFlow(msg.sender, mintPrice); }
     function _mintFlow(address user, uint256 paidAmount) internal {
-        require(mintEnabled, "mint disabled"); require(!hasMinted[user], "already minted"); require(mintedCount < maxMintCount, "mint full"); require(!blacklist[user], "blacklisted"); if (whitelistEnabled) require(whitelist[user], "not whitelisted");
+        require(mintEnabled, "mint disabled"); require(!hasMinted[user], "already minted"); require(mintedCount < maxMintCount, "mint full"); if (whitelistEnabled) require(whitelist[user], "not whitelisted");
         hasMinted[user] = true; mintedCount += 1;
         uint256 userTokens = tokenPerMint * userMintShare / DENOMINATOR;
         uint256 lpTokens = tokenPerMint - userTokens;
@@ -127,7 +128,6 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     }
     function _update(address from, address to, uint256 amount) internal override {
         if (from == address(0) || to == address(0)) { super._update(from, to, amount); return; }
-        require(!blacklist[from] && !blacklist[to], "blacklisted");
         if (!tradingOpen && launchMode == LaunchMode.TIME && launchTime > 0 && block.timestamp >= launchTime) { tradingOpen = true; emit TradingOpened(block.timestamp); }
         bool exemptLimit = isExcludedFromLimits[from] || isExcludedFromLimits[to];
         if (!tradingOpen && !exemptLimit) revert("trading not open");
@@ -144,28 +144,42 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     function openTrading() external onlyOwner { _openTrading(); }
     function closeMint() external onlyOwner { mintEnabled = false; }
     function _swapBack(uint256 tokenAmount) internal lockSwap {
-        uint256 totalShare = marketingShare + burnShare + lpShare; if (totalShare == 0 || tokenAmount == 0) return;
+        uint256 totalShare = marketingShare + burnShare + lpShare + dividendShare; if (totalShare == 0 || tokenAmount == 0) return;
         if (tokenAmount > swapThreshold * 20) tokenAmount = swapThreshold * 20;
-        uint256 lpTokenHalf = tokenAmount * lpShare / totalShare / 2;
-        uint256 tokensToSwap = tokenAmount - lpTokenHalf;
-        uint256 beforeBal = _rewardBalance(); _approve(address(this), address(router), tokensToSwap);
-        if (mintMode == MintMode.BNB) { address[] memory path = new address[](2); path[0] = address(this); path[1] = router.WETH(); router.swapExactTokensForETHSupportingFeeOnTransferTokens(tokensToSwap, 0, path, address(this), block.timestamp); }
-        else { address[] memory path = new address[](2); path[0] = address(this); path[1] = usdtAddress; router.swapExactTokensForTokensSupportingFeeOnTransferTokens(tokensToSwap, 0, path, address(this), block.timestamp); }
-        uint256 received = _rewardBalance() - beforeBal; if (received == 0) return;
-        uint256 marketingAmt = received * marketingShare / totalShare; uint256 burnAmt = received * burnShare / totalShare; uint256 lpAmt = received - marketingAmt - burnAmt;
-        _sendReward(marketingWallet, marketingAmt); _sendReward(deadWallet, burnAmt);
-        if (lpAmt > 0 && lpTokenHalf > 0) { _approve(address(this), address(router), lpTokenHalf); if (mintMode == MintMode.BNB) router.addLiquidityETH{value: lpAmt}(address(this), lpTokenHalf, 0, 0, owner(), block.timestamp); else { IERC20(usdtAddress).forceApprove(address(router), lpAmt); router.addLiquidity(address(this), usdtAddress, lpTokenHalf, lpAmt, 0, 0, owner(), block.timestamp); } }
+        uint256 burnTokens = tokenAmount * burnShare / totalShare;
+        uint256 lpTokens = tokenAmount * lpShare / totalShare;
+        uint256 dividendTokens = tokenAmount * dividendShare / totalShare;
+        uint256 marketingTokens = tokenAmount - burnTokens - lpTokens - dividendTokens;
+        if (burnTokens > 0) super._update(address(this), deadWallet, burnTokens);
+        uint256 lpTokenHalf = lpTokens / 2;
+        uint256 tokensToSwap = marketingTokens + dividendTokens + lpTokenHalf;
+        uint256 received;
+        if (tokensToSwap > 0) {
+            uint256 beforeBal = _rewardBalance(); _approve(address(this), address(router), tokensToSwap);
+            if (mintMode == MintMode.BNB) { address[] memory path = new address[](2); path[0] = address(this); path[1] = router.WETH(); router.swapExactTokensForETHSupportingFeeOnTransferTokens(tokensToSwap, 0, path, address(this), block.timestamp); }
+            else { address[] memory path = new address[](2); path[0] = address(this); path[1] = usdtAddress; router.swapExactTokensForTokensSupportingFeeOnTransferTokens(tokensToSwap, 0, path, address(this), block.timestamp); }
+            received = _rewardBalance() - beforeBal;
+        }
+        if (received > 0) {
+            uint256 marketingAmt = received * marketingTokens / tokensToSwap;
+            uint256 dividendAmt = received * dividendTokens / tokensToSwap;
+            uint256 lpAmt = received - marketingAmt - dividendAmt;
+            _sendReward(marketingWallet, marketingAmt);
+            _fundTokenDividendFromSwap(dividendAmt);
+            if (lpAmt > 0 && lpTokenHalf > 0) { _approve(address(this), address(router), lpTokenHalf); if (mintMode == MintMode.BNB) router.addLiquidityETH{value: lpAmt}(address(this), lpTokenHalf, 0, 0, owner(), block.timestamp); else { IERC20(usdtAddress).forceApprove(address(router), lpAmt); router.addLiquidity(address(this), usdtAddress, lpTokenHalf, lpAmt, 0, 0, owner(), block.timestamp); } }
+        }
         emit SwapBack(tokenAmount, received);
     }
     function forceSwapBack() external onlyOwner { _swapBack(balanceOf(address(this))); }
     function forceAddLiquidity(uint256 tokenAmount, uint256 fundAmount) external payable onlyOwner nonReentrant lockSwap { require(tokenAmount > 0 && fundAmount > 0, "zero amount"); _approve(address(this), address(router), tokenAmount); if (mintMode == MintMode.BNB) { require(msg.value == fundAmount, "bad BNB"); router.addLiquidityETH{value: fundAmount}(address(this), tokenAmount, 0, 0, owner(), block.timestamp); } else { IERC20(usdtAddress).safeTransferFrom(msg.sender, address(this), fundAmount); IERC20(usdtAddress).forceApprove(address(router), fundAmount); router.addLiquidity(address(this), usdtAddress, tokenAmount, fundAmount, 0, 0, owner(), block.timestamp); } }
     function _rewardBalance() internal view returns (uint256) { return mintMode == MintMode.BNB ? address(this).balance : IERC20(usdtAddress).balanceOf(address(this)); }
     function _sendReward(address to, uint256 amount) internal { if (amount == 0) return; if (mintMode == MintMode.BNB) payable(to).transfer(amount); else IERC20(usdtAddress).safeTransfer(to, amount); }
-    function fundTokenDividendBNB() external payable onlyOwner { require(mintMode == MintMode.BNB, "not BNB mode"); require(totalSupply() > balanceOf(address(this)), "no circulating supply"); tokenDividendPerShare += msg.value * ACC / (totalSupply() - balanceOf(address(this))); emit TokenDividendFunded(msg.value); }
-    function fundTokenDividendUSDT(uint256 amount) external onlyOwner { require(mintMode == MintMode.USDT, "not USDT mode"); IERC20(usdtAddress).safeTransferFrom(msg.sender, address(this), amount); require(totalSupply() > balanceOf(address(this)), "no circulating supply"); tokenDividendPerShare += amount * ACC / (totalSupply() - balanceOf(address(this))); emit TokenDividendFunded(amount); }
-    function fundLPDividendBNB() external payable onlyOwner { require(mintMode == MintMode.BNB, "not BNB mode"); uint256 lpSupply = IERC20(pair).totalSupply(); require(lpSupply > 0, "no lp supply"); lpDividendPerShare += msg.value * ACC / lpSupply; emit LPDividendFunded(msg.value); }
-    function fundLPDividendUSDT(uint256 amount) external onlyOwner { require(mintMode == MintMode.USDT, "not USDT mode"); IERC20(usdtAddress).safeTransferFrom(msg.sender, address(this), amount); uint256 lpSupply = IERC20(pair).totalSupply(); require(lpSupply > 0, "no lp supply"); lpDividendPerShare += amount * ACC / lpSupply; emit LPDividendFunded(amount); }
-    function claimDividends() external nonReentrant { uint256 tokenReward = pendingTokenDividend(msg.sender); uint256 lpReward = pendingLPDividend(msg.sender); tokenDividendDebt[msg.sender] = balanceOf(msg.sender) * tokenDividendPerShare / ACC; lpBalanceSnapshot[msg.sender] = IERC20(pair).balanceOf(msg.sender); lpDividendDebt[msg.sender] = lpBalanceSnapshot[msg.sender] * lpDividendPerShare / ACC; _sendReward(msg.sender, tokenReward + lpReward); emit DividendClaimed(msg.sender, tokenReward, lpReward); }
+    function _fundTokenDividendFromSwap(uint256 amount) internal { if (amount == 0) return; uint256 circulating = totalSupply() - balanceOf(address(this)); if (circulating == 0) { _sendReward(marketingWallet, amount); return; } dividendReserve += amount; tokenDividendPerShare += amount * ACC / circulating; emit TokenDividendFunded(amount); }
+    function fundTokenDividendBNB() external payable onlyOwner { require(mintMode == MintMode.BNB, "not BNB mode"); require(totalSupply() > balanceOf(address(this)), "no circulating supply"); dividendReserve += msg.value; tokenDividendPerShare += msg.value * ACC / (totalSupply() - balanceOf(address(this))); emit TokenDividendFunded(msg.value); }
+    function fundTokenDividendUSDT(uint256 amount) external onlyOwner { require(mintMode == MintMode.USDT, "not USDT mode"); IERC20(usdtAddress).safeTransferFrom(msg.sender, address(this), amount); require(totalSupply() > balanceOf(address(this)), "no circulating supply"); dividendReserve += amount; tokenDividendPerShare += amount * ACC / (totalSupply() - balanceOf(address(this))); emit TokenDividendFunded(amount); }
+    function fundLPDividendBNB() external payable onlyOwner { require(mintMode == MintMode.BNB, "not BNB mode"); uint256 lpSupply = IERC20(pair).totalSupply(); require(lpSupply > 0, "no lp supply"); dividendReserve += msg.value; lpDividendPerShare += msg.value * ACC / lpSupply; emit LPDividendFunded(msg.value); }
+    function fundLPDividendUSDT(uint256 amount) external onlyOwner { require(mintMode == MintMode.USDT, "not USDT mode"); IERC20(usdtAddress).safeTransferFrom(msg.sender, address(this), amount); uint256 lpSupply = IERC20(pair).totalSupply(); require(lpSupply > 0, "no lp supply"); dividendReserve += amount; lpDividendPerShare += amount * ACC / lpSupply; emit LPDividendFunded(amount); }
+    function claimDividends() external nonReentrant { uint256 tokenReward = pendingTokenDividend(msg.sender); uint256 lpReward = pendingLPDividend(msg.sender); uint256 reward = tokenReward + lpReward; tokenDividendDebt[msg.sender] = balanceOf(msg.sender) * tokenDividendPerShare / ACC; lpBalanceSnapshot[msg.sender] = IERC20(pair).balanceOf(msg.sender); lpDividendDebt[msg.sender] = lpBalanceSnapshot[msg.sender] * lpDividendPerShare / ACC; if (reward > 0) { require(dividendReserve >= reward, "dividend reserve"); dividendReserve -= reward; _sendReward(msg.sender, reward); } emit DividendClaimed(msg.sender, tokenReward, lpReward); }
     function pendingTokenDividend(address user) public view returns (uint256) { uint256 accumulated = balanceOf(user) * tokenDividendPerShare / ACC; if (accumulated <= tokenDividendDebt[user]) return 0; return accumulated - tokenDividendDebt[user]; }
     function pendingLPDividend(address user) public view returns (uint256) { uint256 lpBal = IERC20(pair).balanceOf(user); uint256 accumulated = lpBal * lpDividendPerShare / ACC; if (accumulated <= lpDividendDebt[user]) return 0; return accumulated - lpDividendDebt[user]; }
     function syncLPDividendDebt() external { lpBalanceSnapshot[msg.sender] = IERC20(pair).balanceOf(msg.sender); lpDividendDebt[msg.sender] = lpBalanceSnapshot[msg.sender] * lpDividendPerShare / ACC; }
@@ -177,26 +191,24 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     function setWhitelistEnabled(bool v) external onlyOwner { whitelistEnabled = v; }
     function setWhitelist(address user, bool v) external onlyOwner { whitelist[user] = v; }
     function batchSetWhitelist(address[] calldata users, bool v) external onlyOwner { for (uint i; i < users.length; i++) whitelist[users[i]] = v; }
-    function setBlacklist(address user, bool v) external onlyOwner { blacklist[user] = v; }
-    function batchSetBlacklist(address[] calldata users, bool v) external onlyOwner { for (uint i; i < users.length; i++) blacklist[users[i]] = v; }
-    function setExcludedFromLimits(address user, bool v) external onlyOwner { isExcludedFromLimits[user] = v; }
     function setExcludedFromFee(address user, bool v) external onlyOwner { isExcludedFromFee[user] = v; }
     function setBuyTax(uint256 v) external onlyOwner { require(v <= MAX_TAX, "tax > 10%"); buyTax = v; }
     function setSellTax(uint256 v) external onlyOwner { require(v <= MAX_TAX, "tax > 10%"); sellTax = v; }
     function setTransferTax(uint256 v) external onlyOwner { require(v <= MAX_TAX, "tax > 10%"); transferTax = v; }
-    function setTaxShares(uint256 marketing, uint256 burn, uint256 lp) external onlyOwner { require(marketing + burn + lp == DENOMINATOR, "sum != 10000"); marketingShare = marketing; burnShare = burn; lpShare = lp; }
+    function setTaxShares(uint256 marketing, uint256 burn, uint256 lp, uint256 dividend) external onlyOwner { require(marketing + burn + lp + dividend == DENOMINATOR, "sum != 10000"); marketingShare = marketing; burnShare = burn; lpShare = lp; dividendShare = dividend; }
     function setMarketingShare(uint256 v) external onlyOwner { marketingShare = v; _checkShares(); }
     function setBurnShare(uint256 v) external onlyOwner { burnShare = v; _checkShares(); }
     function setLPShare(uint256 v) external onlyOwner { lpShare = v; _checkShares(); }
-    function _checkShares() internal view { require(marketingShare + burnShare + lpShare == DENOMINATOR, "sum != 10000"); }
+    function setDividendShare(uint256 v) external onlyOwner { dividendShare = v; _checkShares(); }
+    function _checkShares() internal view { require(marketingShare + burnShare + lpShare + dividendShare == DENOMINATOR, "sum != 10000"); }
     function setMarketingWallet(address v) external onlyOwner { require(v != address(0), "zero"); marketingWallet = v; }
     function setDeadWallet(address v) external onlyOwner { require(v != address(0), "zero"); deadWallet = v; }
     function setSwapEnabled(bool v) external onlyOwner { swapEnabled = v; }
     function setSwapThreshold(uint256 v) external onlyOwner { swapThreshold = v; }
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
-    function withdrawBNB(uint256 amount) external onlyOwner { payable(owner()).transfer(amount == 0 ? address(this).balance : amount); }
-    function withdrawToken(address token, uint256 amount) external onlyOwner { IERC20 erc = IERC20(token); uint256 bal = erc.balanceOf(address(this)); erc.safeTransfer(owner(), amount == 0 ? bal : amount); }
+    function withdrawBNB(uint256 amount) external onlyOwner { uint256 bal = address(this).balance; uint256 locked = mintMode == MintMode.BNB ? dividendReserve : 0; require(bal > locked, "no available BNB"); uint256 available = bal - locked; uint256 toSend = amount == 0 ? available : amount; require(toSend <= available, "exceeds available"); payable(owner()).transfer(toSend); }
+    function withdrawToken(address token, uint256 amount) external onlyOwner { IERC20 erc = IERC20(token); uint256 bal = erc.balanceOf(address(this)); uint256 locked = (mintMode == MintMode.USDT && token == usdtAddress) ? dividendReserve : 0; require(bal > locked, "no available token"); uint256 available = bal - locked; uint256 toSend = amount == 0 ? available : amount; require(toSend <= available, "exceeds available"); erc.safeTransfer(owner(), toSend); }
     function withdrawLP(uint256 amount) external onlyOwner { IERC20 lpToken = IERC20(pair); uint256 bal = lpToken.balanceOf(address(this)); lpToken.safeTransfer(owner(), amount == 0 ? bal : amount); }
 }`;
 
@@ -332,6 +344,47 @@ function syncMintPlan(changedName) {
     maxMintInput.value = String(Math.floor(total / perMint));
   }
   updateDeployHints();
+}
+
+function parseAddressList(value) {
+  const addresses = String(value || "")
+    .split(/[\s,;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!addresses.length) throw new Error("请先填写批量地址。");
+  return addresses.map((address) => {
+    if (!ethers.isAddress(address)) throw new Error(`地址格式不正确：${address}`);
+    return ethers.getAddress(address);
+  });
+}
+
+function readDeployTaxConfig(form) {
+  const config = {
+    buyTax: percentToBp(form.elements.buyTax.value),
+    sellTax: percentToBp(form.elements.sellTax.value),
+    transferTax: percentToBp(form.elements.transferTax.value),
+    marketingShare: percentToBp(form.elements.marketingShare.value),
+    burnShare: percentToBp(form.elements.burnShare.value),
+    lpShare: percentToBp(form.elements.lpShare.value),
+    dividendShare: percentToBp(form.elements.dividendShare.value)
+  };
+  if (config.marketingShare + config.burnShare + config.lpShare + config.dividendShare !== 10000n) {
+    throw new Error("税收分配四项必须合计 100%。");
+  }
+  return config;
+}
+
+async function applyPostDeploySettings(contract, form) {
+  const tax = readDeployTaxConfig(form);
+  const jobs = [
+    ["设置买入税", tax.buyTax, () => contract.setBuyTax(tax.buyTax)],
+    ["设置卖出税", tax.sellTax, () => contract.setSellTax(tax.sellTax)],
+    ["设置转账税", tax.transferTax, () => contract.setTransferTax(tax.transferTax)],
+    ["设置税收分配", 1n, () => contract.setTaxShares(tax.marketingShare, tax.burnShare, tax.lpShare, tax.dividendShare)]
+  ];
+  for (const [label, value, call] of jobs) {
+    if (value > 0n) await txDone(await call(), label);
+  }
 }
 
 function getInjectedWallet() {
@@ -512,6 +565,7 @@ async function deployContract(form) {
   log(`部署交易已提交：${contract.deploymentTransaction().hash}`);
   await contract.waitForDeployment();
   const address = await contract.getAddress();
+  await applyPostDeploySettings(contract, form);
   const constructorArgs = ethers.AbiCoder.defaultAbiCoder().encode(CONSTRUCTOR_TYPES, args).slice(2);
   const deploymentInfo = {
     contractAddress: address,
@@ -521,6 +575,9 @@ async function deployContract(form) {
     optimizer: { enabled: true, runs: 200, viaIR: true },
     constructorArguments: constructorArgs,
     constructorValues: args,
+    postDeploySettings: {
+      taxes: readDeployTaxConfig(form)
+    },
     deployer: state.account,
     chainId: (await state.provider.getNetwork()).chainId.toString(),
     transactionHash: contract.deploymentTransaction().hash,
@@ -551,9 +608,10 @@ async function contractAt(address) {
 
 async function refreshMint() {
   if (!state.mint) return;
-  const [mintPrice, tokenPerMint, mintedCount, maxMintCount, mintEnabled, mode, pendingToken, pendingLP] = await Promise.all([
+  const [mintPrice, tokenPerMint, mintedCount, maxMintCount, mintEnabled, mode, pendingToken, pendingLP, reserve] = await Promise.all([
     state.mint.mintPrice(), state.mint.tokenPerMint(), state.mint.mintedCount(), state.mint.maxMintCount(),
-    state.mint.mintEnabled(), state.mint.mintMode(), state.mint.pendingTokenDividend(state.account), state.mint.pendingLPDividend(state.account)
+    state.mint.mintEnabled(), state.mint.mintMode(), state.mint.pendingTokenDividend(state.account), state.mint.pendingLPDividend(state.account),
+    state.mint.dividendReserve()
   ]);
   renderStats("mintStats", [
     ["Mint 价格", ethers.formatUnits(mintPrice, 18)],
@@ -561,7 +619,9 @@ async function refreshMint() {
     ["进度", `${mintedCount} / ${maxMintCount}`],
     ["Mint 状态", mintEnabled ? "开启" : "关闭"],
     ["模式", Number(mode) === 0 ? "BNB" : "USDT"],
-    ["可领取分红", ethers.formatUnits(pendingToken + pendingLP, 18)]
+    ["持币可领", ethers.formatUnits(pendingToken, 18)],
+    ["LP 可领", ethers.formatUnits(pendingLP, 18)],
+    ["分红储备", ethers.formatUnits(reserve, 18)]
   ]);
 }
 
@@ -569,20 +629,21 @@ async function refreshAdmin() {
   if (!state.admin) return;
   const [
     owner, pair, mintMode, mintPrice, tokenPerMint, mintedCount, maxMintCount, mintEnabled, tradingOpen,
-    buyTax, sellTax, transferTax, marketingShare, burnShare, lpShare, marketingWallet, swapThreshold
+    buyTax, sellTax, transferTax, marketingShare, burnShare, lpShare, dividendShare, marketingWallet, swapThreshold, dividendReserve
   ] = await Promise.all([
     state.admin.owner(), state.admin.pair(), state.admin.mintMode(), state.admin.mintPrice(), state.admin.tokenPerMint(),
     state.admin.mintedCount(), state.admin.maxMintCount(), state.admin.mintEnabled(), state.admin.tradingOpen(),
     state.admin.buyTax(), state.admin.sellTax(), state.admin.transferTax(), state.admin.marketingShare(),
-    state.admin.burnShare(), state.admin.lpShare(), state.admin.marketingWallet(), state.admin.swapThreshold()
+    state.admin.burnShare(), state.admin.lpShare(), state.admin.dividendShare(), state.admin.marketingWallet(), state.admin.swapThreshold(),
+    state.admin.dividendReserve()
   ]);
   renderStats("adminStats", [
     ["Owner", owner], ["Pair", pair], ["Mint 模式", Number(mintMode) === 0 ? "BNB" : "USDT"],
     ["Mint 价格", ethers.formatUnits(mintPrice, 18)], ["单次代币", ethers.formatUnits(tokenPerMint, 18)],
     ["Mint 进度", `${mintedCount} / ${maxMintCount}`], ["Mint", mintEnabled ? "开启" : "关闭"],
     ["交易", tradingOpen ? "已开启" : "未开启"], ["买/卖/转税", `${buyTax}/${sellTax}/${transferTax} BP`],
-    ["分配", `${marketingShare}/${burnShare}/${lpShare} BP`], ["营销钱包", marketingWallet],
-    ["Swap 阈值", ethers.formatUnits(swapThreshold, 18)]
+    ["分配", `${marketingShare}/${burnShare}/${lpShare}/${dividendShare} BP`], ["营销钱包", marketingWallet],
+    ["Swap 阈值", ethers.formatUnits(swapThreshold, 18)], ["分红储备", ethers.formatUnits(dividendReserve, 18)]
   ]);
 }
 
@@ -624,13 +685,12 @@ async function adminAction(action) {
     unpause: () => c.unpause(),
     setWhitelistEnabled: () => c.setWhitelistEnabled(parseBool($("whitelistEnabled").value)),
     setWhitelist: () => c.setWhitelist(listAddress, listValue),
-    setBlacklist: () => c.setBlacklist(listAddress, listValue),
-    setExcludedFromLimits: () => c.setExcludedFromLimits(listAddress, listValue),
+    batchSetWhitelist: () => c.batchSetWhitelist(parseAddressList($("batchListAddresses").value), listValue),
     setExcludedFromFee: () => c.setExcludedFromFee(listAddress, listValue),
     setBuyTax: () => c.setBuyTax(BigInt($("buyTax").value)),
     setSellTax: () => c.setSellTax(BigInt($("sellTax").value)),
     setTransferTax: () => c.setTransferTax(BigInt($("transferTax").value)),
-    setTaxShares: () => c.setTaxShares(BigInt($("marketingShare").value), BigInt($("burnShare").value), BigInt($("lpShare").value)),
+    setTaxShares: () => c.setTaxShares(BigInt($("marketingShare").value), BigInt($("burnShare").value), BigInt($("lpShare").value), BigInt($("dividendShare").value)),
     setMarketingWallet: () => c.setMarketingWallet($("marketingWallet").value.trim()),
     setSwapThreshold: () => c.setSwapThreshold(parseToken($("swapThreshold").value)),
     forceSwapBack: () => c.forceSwapBack(),
