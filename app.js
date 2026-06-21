@@ -474,6 +474,7 @@ async function compileContract() {
 }
 
 function deployArgs(form) {
+  if (!(form instanceof HTMLFormElement)) throw new Error("没有读取到部署表单，请刷新页面后重试。");
   const fd = new FormData(form);
   const launchRaw = fd.get("launchTime");
   const launchTime = launchRaw ? Math.floor(new Date(launchRaw).getTime() / 1000) : 0;
@@ -495,11 +496,16 @@ function deployArgs(form) {
   ];
 }
 
-async function deployContract(ev) {
-  ev.preventDefault();
+async function deployContract(form) {
+  if (!form.checkValidity()) {
+    form.reportValidity();
+    return;
+  }
   await ensureWallet();
   if (!state.compiled) await compileContract();
-  const args = deployArgs(ev.currentTarget);
+  setDefaultMarketingWallet();
+  applyNetworkDefaults();
+  const args = deployArgs(form);
   log("请在钱包中确认部署交易...");
   const factory = new ethers.ContractFactory(state.compiled.abi, state.compiled.bytecode, state.signer);
   const contract = await factory.deploy(...args);
@@ -664,7 +670,11 @@ document.querySelectorAll(".tab").forEach((btn) => btn.addEventListener("click",
 
 $("connectWallet").addEventListener("click", async (e) => run(e.currentTarget, connectWallet));
 $("compileContract").addEventListener("click", async (e) => run(e.currentTarget, compileContract));
-$("deployForm").addEventListener("submit", async (e) => run(e.submitter, () => deployContract(e)));
+$("deployForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  run(e.submitter, () => deployContract(form));
+});
 $("loadMintInfo").addEventListener("click", async (e) => run(e.currentTarget, async () => { state.mint = await contractAt($("mintContractAddress").value.trim()); await refreshMint(); }));
 $("mintNow").addEventListener("click", async (e) => run(e.currentTarget, mintNow));
 $("claimDividends").addEventListener("click", async (e) => run(e.currentTarget, async () => { if (!state.mint) state.mint = await contractAt($("mintContractAddress").value.trim()); await txDone(await state.mint.claimDividends(), "领取分红"); await refreshMint(); }));
