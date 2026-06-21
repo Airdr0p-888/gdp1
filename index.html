@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Moda Fair Mint 控制台</title>
     <link rel="stylesheet" href="./styles.css" />
-    <script type="module" src="./app.js?v=20260621-deploy-sections"></script>
+    <script type="module" src="./app.js?v=20260621-tax-share-sliders"></script>
   </head>
   <body>
     <div class="shell">
@@ -70,16 +70,23 @@
             </fieldset>
 
             <fieldset>
-              <legend>税率与分配</legend>
+              <legend>税率</legend>
               <div class="grid">
                 <label>买入税 %<input name="buyTax" type="number" value="0" min="0" max="10" step="0.01" required /></label>
                 <label>卖出税 %<input name="sellTax" type="number" value="0" min="0" max="10" step="0.01" required /></label>
                 <label>转账税 %<input name="transferTax" type="number" value="0" min="0" max="10" step="0.01" required /></label>
-                <label>税收给营销 %<input name="marketingShare" type="number" value="100" min="0" max="100" step="0.01" required /></label>
-                <label>税收销毁 %<input name="burnShare" type="number" value="0" min="0" max="100" step="0.01" required /></label>
-                <label>税收回流 LP %<input name="lpShare" type="number" value="0" min="0" max="100" step="0.01" required /></label>
-                <label>税收持币分红 %<input name="dividendShare" type="number" value="0" min="0" max="100" step="0.01" required /></label>
               </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>税收分配</legend>
+              <div class="share-grid">
+                <label class="share-control">营销钱包 %<input name="marketingShare" type="range" value="100" min="0" max="100" step="0.01" /><input name="marketingShareNumber" type="number" value="100" min="0" max="100" step="0.01" /></label>
+                <label class="share-control">代币销毁 %<input name="burnShare" type="range" value="0" min="0" max="100" step="0.01" /><input name="burnShareNumber" type="number" value="0" min="0" max="100" step="0.01" /></label>
+                <label class="share-control">回流 LP %<input name="lpShare" type="range" value="0" min="0" max="100" step="0.01" /><input name="lpShareNumber" type="number" value="0" min="0" max="100" step="0.01" /></label>
+                <label class="share-control">持币分红 %<input name="dividendShare" type="range" value="0" min="0" max="100" step="0.01" /><input name="dividendShareNumber" type="number" value="0" min="0" max="100" step="0.01" /></label>
+              </div>
+              <div id="taxShareHint" class="form-hint ok">税收分配合计 100%</div>
             </fieldset>
 
             <fieldset>

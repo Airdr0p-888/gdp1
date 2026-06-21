@@ -365,6 +365,7 @@ function parseAddressList(value) {
 }
 
 function readDeployTaxConfig(form) {
+  syncTaxShareControls();
   const config = {
     buyTax: percentToBp(form.elements.buyTax.value),
     sellTax: percentToBp(form.elements.sellTax.value),
@@ -378,6 +379,65 @@ function readDeployTaxConfig(form) {
     throw new Error("税收分配四项必须合计 100%。");
   }
   return config;
+}
+
+const TAX_SHARE_NAMES = ["marketingShare", "burnShare", "lpShare", "dividendShare"];
+const TAX_SHARE_LABELS = {
+  marketingShare: "营销钱包",
+  burnShare: "代币销毁",
+  lpShare: "回流 LP",
+  dividendShare: "持币分红"
+};
+
+function taxShareValue(name) {
+  return Number(formField(name)?.value || 0);
+}
+
+function taxShareNumberField(name) {
+  return formField(`${name}Number`);
+}
+
+function setTaxShareValue(name, value) {
+  const range = formField(name);
+  const number = taxShareNumberField(name);
+  const normalized = Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100) / 100));
+  if (range) range.value = String(normalized);
+  if (number) number.value = String(normalized);
+}
+
+function syncTaxShareControls(changedName = null, rawValue = null) {
+  if (changedName) {
+    const othersTotal = TAX_SHARE_NAMES
+      .filter((name) => name !== changedName)
+      .reduce((sum, name) => sum + taxShareValue(name), 0);
+    const maxAllowed = Math.max(0, 100 - othersTotal);
+    setTaxShareValue(changedName, Math.min(Number(rawValue || 0), maxAllowed));
+  }
+
+  const values = Object.fromEntries(TAX_SHARE_NAMES.map((name) => [name, taxShareValue(name)]));
+  const total = TAX_SHARE_NAMES.reduce((sum, name) => sum + values[name], 0);
+  const remaining = Math.round((100 - total) * 100) / 100;
+
+  for (const name of TAX_SHARE_NAMES) {
+    const otherTotal = total - values[name];
+    const maxAllowed = Math.max(0, Math.round((100 - otherTotal) * 100) / 100);
+    const range = formField(name);
+    const number = taxShareNumberField(name);
+    if (range) range.max = String(maxAllowed);
+    if (number) number.max = String(maxAllowed);
+    if (range) range.disabled = maxAllowed === 0 && values[name] === 0;
+    if (number) number.disabled = maxAllowed === 0 && values[name] === 0;
+  }
+
+  const hint = $("taxShareHint");
+  if (hint) {
+    const parts = TAX_SHARE_NAMES.map((name) => `${TAX_SHARE_LABELS[name]} ${values[name]}%`);
+    hint.textContent = remaining === 0
+      ? `税收分配合计 100%：${parts.join(" / ")}`
+      : `还剩 ${remaining}% 未分配，四项必须合计 100%。`;
+    hint.classList.toggle("ok", remaining === 0);
+    hint.classList.toggle("error", remaining !== 0);
+  }
 }
 
 function readDeployLimitConfig(form) {
@@ -768,6 +828,10 @@ document.querySelectorAll("[data-action]").forEach((btn) => btn.addEventListener
 ["totalSupply", "tokenPerMint", "maxMintCount", "mintPrice"].forEach((name) => {
   formField(name)?.addEventListener("input", () => syncMintPlan(name));
 });
+TAX_SHARE_NAMES.forEach((name) => {
+  formField(name)?.addEventListener("input", (event) => syncTaxShareControls(name, event.target.value));
+  taxShareNumberField(name)?.addEventListener("input", (event) => syncTaxShareControls(name, event.target.value));
+});
 formField("mintMode")?.addEventListener("change", () => {
   applyNetworkDefaults();
   updateDeployHints();
@@ -777,6 +841,7 @@ window.ethereum?.on?.("chainChanged", () => {
   connectWallet().catch((err) => log(err.shortMessage || err.message || String(err)));
 });
 updateDeployHints();
+syncTaxShareControls();
 
 async function run(button, fn) {
   try {

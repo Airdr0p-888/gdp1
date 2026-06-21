@@ -193,6 +193,52 @@ textarea:focus {
   border-color: var(--accent);
 }
 
+input[type="range"] {
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.share-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.share-control {
+  grid-template-columns: 1fr 108px;
+  align-items: center;
+  column-gap: 12px;
+}
+
+.share-control input[type="range"] {
+  grid-column: 1 / 2;
+}
+
+.share-control input[type="number"] {
+  grid-column: 2 / 3;
+  grid-row: 2;
+}
+
+.form-hint {
+  margin-top: 14px;
+  min-height: 38px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: #0f1319;
+  color: var(--muted);
+}
+
+.form-hint.ok {
+  border-color: rgba(54, 197, 161, .6);
+  color: #d7fbe9;
+}
+
+.form-hint.error {
+  border-color: rgba(255, 107, 107, .7);
+  color: #ffd1d1;
+}
+
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(150px, 1fr));
