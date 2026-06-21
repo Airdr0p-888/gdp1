@@ -344,14 +344,24 @@ function updateDeployHints() {
   const perMint = Number(form.elements.tokenPerMint.value || 0);
   const maxMint = Number(form.elements.maxMintCount.value || 0);
   const price = Number(form.elements.mintPrice.value || 0);
+  const userShare = Number(form.elements.userMintShare.value || 0);
+  const lpFundShare = Number(form.elements.lpFundShare.value || 0);
   const mintedTokenPlan = perMint * maxMint;
   const remaining = total - mintedTokenPlan;
+  const userTokensPerMint = perMint * userShare / 100;
+  const lpTokensPerMint = perMint - userTokensPerMint;
+  const lpFundPerMint = price * lpFundShare / 100;
+  const retainedFundPerMint = price - lpFundPerMint;
   const defaults = activeNetworkDefaults();
   const currency = Number(form.elements.mintMode.value) === 0 ? (defaults?.native || "BNB") : "USDT";
   renderStats("deployHints", [
     ["Mint 覆盖代币", formatNumber(mintedTokenPlan)],
     ["合约剩余预留", formatNumber(remaining)],
-    ["预计总募集", `${formatNumber(price * maxMint)} ${currency}`]
+    ["预计总募集", `${formatNumber(price * maxMint)} ${currency}`],
+    ["每次用户获得", formatNumber(userTokensPerMint)],
+    ["每次进池代币", formatNumber(lpTokensPerMint)],
+    ["每次进池资金", `${formatNumber(lpFundPerMint)} ${currency}`],
+    ["每次合约留存资金", `${formatNumber(retainedFundPerMint)} ${currency}`]
   ]);
 }
 
@@ -854,7 +864,7 @@ $("loadAdmin").addEventListener("click", async (e) => run(e.currentTarget, async
 $("refreshAdmin").addEventListener("click", async (e) => run(e.currentTarget, refreshAdmin));
 document.querySelectorAll("[data-action]").forEach((btn) => btn.addEventListener("click", async () => run(btn, () => adminAction(btn.dataset.action))));
 
-["totalSupply", "tokenPerMint", "maxMintCount", "mintPrice"].forEach((name) => {
+["totalSupply", "tokenPerMint", "maxMintCount", "mintPrice", "userMintShare", "lpFundShare"].forEach((name) => {
   formField(name)?.addEventListener("input", () => syncMintPlan(name));
 });
 TAX_SHARE_NAMES.forEach((name) => {
