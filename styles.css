@@ -1,0 +1,254 @@
+:root {
+  color-scheme: dark;
+  --bg: #101216;
+  --panel: #181c22;
+  --panel-2: #202630;
+  --line: #343b48;
+  --text: #f4f7fb;
+  --muted: #aeb8c7;
+  --accent: #36c5a1;
+  --accent-2: #f3b64a;
+  --danger: #ff6b6b;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 28px;
+  border-right: 1px solid var(--line);
+  background: #12161c;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: 30px; line-height: 1.15; margin-top: 8px; }
+h2 { font-size: 24px; }
+h3 { font-size: 17px; margin-bottom: 14px; }
+
+.eyebrow {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+main {
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.panel {
+  display: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.panel.active { display: block; }
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 22px;
+}
+
+.tabs {
+  display: grid;
+  gap: 8px;
+}
+
+button {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-weight: 750;
+  cursor: pointer;
+  padding: 0 14px;
+}
+
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: .55; cursor: wait; }
+.primary { background: var(--accent); color: #061411; border-color: var(--accent); }
+.secondary { background: transparent; }
+.tab { text-align: left; }
+.tab.active { border-color: var(--accent); color: var(--accent); }
+.wide { grid-column: 1 / -1; }
+
+.wallet-card, article {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.wallet-card {
+  display: grid;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.wallet-card span, label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.wallet-card strong {
+  font-size: 14px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.grid.compact {
+  grid-template-columns: minmax(240px, 1fr) auto;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+label {
+  display: grid;
+  gap: 8px;
+}
+
+input, select {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0f1319;
+  color: var(--text);
+  padding: 0 12px;
+  outline: none;
+}
+
+input:focus, select:focus {
+  border-color: var(--accent);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.stat {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #11161d;
+  overflow-wrap: anywhere;
+}
+
+.stat span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.stat strong {
+  font-size: 15px;
+}
+
+.admin-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.row.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+article > button {
+  margin: 0 8px 10px 0;
+}
+
+.downloads {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--panel-2);
+}
+
+.downloads a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  margin: 10px 8px 0 0;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.downloads a:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#log {
+  min-height: 88px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #090c10;
+  color: #d7fbe9;
+  padding: 14px;
+}
+
+@media (max-width: 980px) {
+  .shell { grid-template-columns: 1fr; }
+  .sidebar {
+    position: relative;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .grid, .admin-groups, .stats { grid-template-columns: 1fr; }
+  .grid.compact { grid-template-columns: 1fr; }
+  .section-head { align-items: stretch; flex-direction: column; }
+}
