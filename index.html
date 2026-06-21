@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Moda Fair Mint 控制台</title>
     <link rel="stylesheet" href="./styles.css" />
-    <script type="module" src="./app.js?v=20260621-mint-breakdown"></script>
+    <script type="module" src="./app.js?v=20260621-dividend-accounting-fix"></script>
   </head>
   <body>
     <div class="shell">
@@ -87,6 +87,9 @@
                 <label class="share-control">持币分红 %<input name="dividendShare" type="range" value="0" min="0" max="100" step="0.01" /><input name="dividendShareNumber" type="number" value="0" min="0" max="100" step="0.01" /></label>
               </div>
               <div id="taxShareHint" class="form-hint ok">税收分配合计 100%</div>
+              <div class="grid share-extra">
+                <label>持币分红最低持仓<input name="minTokenDividendBalance" type="number" value="0" min="0" step="1" /></label>
+              </div>
             </fieldset>
 
             <fieldset>
@@ -104,6 +107,15 @@
                 <label>开盘时间<input name="launchTime" type="datetime-local" /></label>
                 <label>营销钱包<input name="marketingWallet" placeholder="默认使用部署钱包" /></label>
               </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>尾号定制</legend>
+              <div class="grid">
+                <label>合约尾号定制<select name="vanityEnabled"><option value="false">关闭</option><option value="true">开启</option></select></label>
+                <label>目标尾号<input name="vanitySuffix" placeholder="例如 8888，最多 5 位十六进制" maxlength="5" /></label>
+              </div>
+              <div id="vanityHint" class="form-hint">开启后会先部署 CREATE2 工厂，再部署目标尾号 Token。Owner 仍是当前钱包。</div>
             </fieldset>
 
             <button class="primary wide" type="submit">部署合约</button>
@@ -189,11 +201,13 @@
 
             <article>
               <h3>分红、流动性与提现</h3>
+              <div class="row"><input id="minTokenDividendBalance" placeholder="持币分红最低持仓" /><button data-action="setMinTokenDividendBalance">设置门槛</button></div>
               <div class="row"><input id="dividendAmount" placeholder="分红金额" /><button data-action="fundTokenDividend">代币持有人分红</button></div>
               <div class="row"><input id="lpDividendAmount" placeholder="LP 分红金额" /><button data-action="fundLPDividend">LP 分红</button></div>
               <div class="row"><input id="liqTokenAmount" placeholder="代币数量" /><input id="liqFundAmount" placeholder="资金数量" /><button data-action="forceAddLiquidity">加池</button></div>
               <div class="row"><input id="withdrawBNBAmount" placeholder="BNB 数量，空为全部" /><button data-action="withdrawBNB">提取 BNB</button></div>
               <div class="row"><input id="withdrawTokenAddress" placeholder="代币地址" /><input id="withdrawTokenAmount" placeholder="数量，空为全部" /><button data-action="withdrawToken">提取代币</button></div>
+              <div class="row"><input id="withdrawDividendReserveAmount" placeholder="分红储备数量，空为全部" /><button data-action="withdrawDividendReserve">提取分红储备</button></div>
               <div class="row"><input id="withdrawLPAmount" placeholder="LP 数量，空为全部" /><button data-action="withdrawLP">提取 LP</button></div>
             </article>
           </div>

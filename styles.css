@@ -239,6 +239,10 @@ input[type="range"] {
   color: #ffd1d1;
 }
 
+.share-extra {
+  margin-top: 14px;
+}
+
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(150px, 1fr));

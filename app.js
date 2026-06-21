@@ -66,8 +66,10 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     uint256 public tokenDividendPerShare;
     uint256 public lpDividendPerShare;
     uint256 public dividendReserve;
+    uint256 public minTokenDividendBalance;
     uint256 private constant ACC = 1e36;
     mapping(address => uint256) public tokenDividendDebt;
+    mapping(address => uint256) public tokenDividendCredit;
     mapping(address => uint256) public lpDividendDebt;
     mapping(address => uint256) public lpBalanceSnapshot;
     event Minted(address indexed user, uint256 paidAmount, uint256 userTokens, uint256 lpTokens, uint256 lpFund);
@@ -77,10 +79,11 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     event LPDividendFunded(uint256 amount);
     event DividendClaimed(address indexed user, uint256 tokenReward, uint256 lpReward);
     modifier lockSwap() { inSwap = true; _; inSwap = false; }
-    constructor(string memory name_, string memory symbol_, uint256 totalSupply_, MintMode mintMode_, address usdtAddress_, address router_, uint256 mintPrice_, uint256 tokenPerMint_, uint256 maxMintCount_, uint256 userMintShare_, uint256 lpFundShare_, LaunchMode launchMode_, uint256 launchTime_, address marketingWallet_, uint256 buyTax_, uint256 sellTax_, uint256 transferTax_, uint256 marketingShare_, uint256 burnShare_, uint256 lpShare_, uint256 dividendShare_, bool buyLimitEnabled_, uint256 maxBuyAmountPerWallet_) ERC20(name_, symbol_) Ownable(msg.sender) {
+    constructor(string memory name_, string memory symbol_, uint256 totalSupply_, MintMode mintMode_, address usdtAddress_, address router_, uint256 mintPrice_, uint256 tokenPerMint_, uint256 maxMintCount_, uint256 userMintShare_, uint256 lpFundShare_, LaunchMode launchMode_, uint256 launchTime_, address marketingWallet_, address owner_, uint256 buyTax_, uint256 sellTax_, uint256 transferTax_, uint256 marketingShare_, uint256 burnShare_, uint256 lpShare_, uint256 dividendShare_, bool buyLimitEnabled_, uint256 maxBuyAmountPerWallet_, uint256 minTokenDividendBalance_) ERC20(name_, symbol_) Ownable(owner_) {
         require(totalSupply_ > 0, "totalSupply zero");
         require(router_ != address(0), "router zero");
         require(marketingWallet_ != address(0), "marketing zero");
+        require(owner_ != address(0), "owner zero");
         require(userMintShare_ <= DENOMINATOR, "bad user share");
         require(lpFundShare_ <= DENOMINATOR, "bad lp fund share");
         require(buyTax_ <= MAX_TAX && sellTax_ <= MAX_TAX && transferTax_ <= MAX_TAX, "tax > 10%");
@@ -108,16 +111,16 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
         dividendShare = dividendShare_;
         buyLimitEnabled = buyLimitEnabled_;
         maxBuyAmountPerWallet = maxBuyAmountPerWallet_;
+        minTokenDividendBalance = minTokenDividendBalance_;
         deadWallet = 0x000000000000000000000000000000000000dEaD;
         address base = mintMode_ == MintMode.BNB ? router.WETH() : usdtAddress_;
         pair = IPancakeFactoryV2(router.factory()).createPair(address(this), base);
         _mint(address(this), totalSupply_);
         swapThreshold = totalSupply_ / 1000;
-        isExcludedFromLimits[msg.sender] = true;
+        isExcludedFromLimits[owner_] = true;
         isExcludedFromLimits[address(this)] = true;
         isExcludedFromLimits[router_] = true;
-        isExcludedFromLimits[pair] = true;
-        isExcludedFromFee[msg.sender] = true;
+        isExcludedFromFee[owner_] = true;
         isExcludedFromFee[address(this)] = true;
         isExcludedFromFee[router_] = true;
     }
@@ -154,7 +157,7 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
         }
         if (taxAmount > 0) { super._update(from, address(this), taxAmount); amount -= taxAmount; }
         if (buyLimitEnabled && from == pair && !isExcludedFromLimits[to]) { boughtAmount[to] += amount; require(boughtAmount[to] <= maxBuyAmountPerWallet, "buy limit"); }
-        _settleTokenDividend(from); _settleTokenDividend(to); super._update(from, to, amount);
+        _accrueTokenDividend(from); _accrueTokenDividend(to); super._update(from, to, amount); _settleTokenDividend(from); _settleTokenDividend(to);
     }
     function _openTrading() internal { if (!tradingOpen) { tradingOpen = true; mintEnabled = false; emit TradingOpened(block.timestamp); } }
     function openTrading() external onlyOwner { _openTrading(); }
@@ -195,10 +198,11 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     function fundTokenDividendUSDT(uint256 amount) external onlyOwner { require(mintMode == MintMode.USDT, "not USDT mode"); IERC20(usdtAddress).safeTransferFrom(msg.sender, address(this), amount); require(totalSupply() > balanceOf(address(this)), "no circulating supply"); dividendReserve += amount; tokenDividendPerShare += amount * ACC / (totalSupply() - balanceOf(address(this))); emit TokenDividendFunded(amount); }
     function fundLPDividendBNB() external payable onlyOwner { require(mintMode == MintMode.BNB, "not BNB mode"); uint256 lpSupply = IERC20(pair).totalSupply(); require(lpSupply > 0, "no lp supply"); dividendReserve += msg.value; lpDividendPerShare += msg.value * ACC / lpSupply; emit LPDividendFunded(msg.value); }
     function fundLPDividendUSDT(uint256 amount) external onlyOwner { require(mintMode == MintMode.USDT, "not USDT mode"); IERC20(usdtAddress).safeTransferFrom(msg.sender, address(this), amount); uint256 lpSupply = IERC20(pair).totalSupply(); require(lpSupply > 0, "no lp supply"); dividendReserve += amount; lpDividendPerShare += amount * ACC / lpSupply; emit LPDividendFunded(amount); }
-    function claimDividends() external nonReentrant { uint256 tokenReward = pendingTokenDividend(msg.sender); uint256 lpReward = pendingLPDividend(msg.sender); uint256 reward = tokenReward + lpReward; tokenDividendDebt[msg.sender] = balanceOf(msg.sender) * tokenDividendPerShare / ACC; lpBalanceSnapshot[msg.sender] = IERC20(pair).balanceOf(msg.sender); lpDividendDebt[msg.sender] = lpBalanceSnapshot[msg.sender] * lpDividendPerShare / ACC; if (reward > 0) { require(dividendReserve >= reward, "dividend reserve"); dividendReserve -= reward; _sendReward(msg.sender, reward); } emit DividendClaimed(msg.sender, tokenReward, lpReward); }
-    function pendingTokenDividend(address user) public view returns (uint256) { uint256 accumulated = balanceOf(user) * tokenDividendPerShare / ACC; if (accumulated <= tokenDividendDebt[user]) return 0; return accumulated - tokenDividendDebt[user]; }
+    function claimDividends() external nonReentrant { uint256 tokenReward = pendingTokenDividend(msg.sender); uint256 lpReward = pendingLPDividend(msg.sender); uint256 reward = tokenReward + lpReward; tokenDividendCredit[msg.sender] = 0; tokenDividendDebt[msg.sender] = balanceOf(msg.sender) * tokenDividendPerShare / ACC; lpBalanceSnapshot[msg.sender] = IERC20(pair).balanceOf(msg.sender); lpDividendDebt[msg.sender] = lpBalanceSnapshot[msg.sender] * lpDividendPerShare / ACC; if (reward > 0) { require(dividendReserve >= reward, "dividend reserve"); dividendReserve -= reward; _sendReward(msg.sender, reward); } emit DividendClaimed(msg.sender, tokenReward, lpReward); }
+    function pendingTokenDividend(address user) public view returns (uint256) { uint256 pending = tokenDividendCredit[user]; if (balanceOf(user) < minTokenDividendBalance) return pending; uint256 accumulated = balanceOf(user) * tokenDividendPerShare / ACC; if (accumulated > tokenDividendDebt[user]) pending += accumulated - tokenDividendDebt[user]; return pending; }
     function pendingLPDividend(address user) public view returns (uint256) { uint256 lpBal = IERC20(pair).balanceOf(user); uint256 accumulated = lpBal * lpDividendPerShare / ACC; if (accumulated <= lpDividendDebt[user]) return 0; return accumulated - lpDividendDebt[user]; }
     function syncLPDividendDebt() external { lpBalanceSnapshot[msg.sender] = IERC20(pair).balanceOf(msg.sender); lpDividendDebt[msg.sender] = lpBalanceSnapshot[msg.sender] * lpDividendPerShare / ACC; }
+    function _accrueTokenDividend(address user) internal { uint256 pending = pendingTokenDividend(user); if (pending > tokenDividendCredit[user]) tokenDividendCredit[user] = pending; tokenDividendDebt[user] = balanceOf(user) * tokenDividendPerShare / ACC; }
     function _settleTokenDividend(address user) internal { tokenDividendDebt[user] = balanceOf(user) * tokenDividendPerShare / ACC; }
     function setMintPrice(uint256 v) external onlyOwner { mintPrice = v; }
     function setTokenPerMint(uint256 v) external onlyOwner { tokenPerMint = v; }
@@ -210,6 +214,7 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     function setExcludedFromFee(address user, bool v) external onlyOwner { isExcludedFromFee[user] = v; }
     function setBuyLimitEnabled(bool v) external onlyOwner { buyLimitEnabled = v; }
     function setMaxBuyAmountPerWallet(uint256 v) external onlyOwner { maxBuyAmountPerWallet = v; }
+    function setMinTokenDividendBalance(uint256 v) external onlyOwner { minTokenDividendBalance = v; }
     function setBuyTax(uint256 v) external onlyOwner { require(v <= MAX_TAX, "tax > 10%"); buyTax = v; }
     function setSellTax(uint256 v) external onlyOwner { require(v <= MAX_TAX, "tax > 10%"); sellTax = v; }
     function setTransferTax(uint256 v) external onlyOwner { require(v <= MAX_TAX, "tax > 10%"); transferTax = v; }
@@ -227,7 +232,28 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     function unpause() external onlyOwner { _unpause(); }
     function withdrawBNB(uint256 amount) external onlyOwner { uint256 bal = address(this).balance; uint256 locked = mintMode == MintMode.BNB ? dividendReserve : 0; require(bal > locked, "no available BNB"); uint256 available = bal - locked; uint256 toSend = amount == 0 ? available : amount; require(toSend <= available, "exceeds available"); payable(owner()).transfer(toSend); }
     function withdrawToken(address token, uint256 amount) external onlyOwner { IERC20 erc = IERC20(token); uint256 bal = erc.balanceOf(address(this)); uint256 locked = (mintMode == MintMode.USDT && token == usdtAddress) ? dividendReserve : 0; require(bal > locked, "no available token"); uint256 available = bal - locked; uint256 toSend = amount == 0 ? available : amount; require(toSend <= available, "exceeds available"); erc.safeTransfer(owner(), toSend); }
+    function withdrawDividendReserve(uint256 amount) external onlyOwner { uint256 toSend = amount == 0 ? dividendReserve : amount; require(toSend <= dividendReserve, "exceeds reserve"); dividendReserve -= toSend; _sendReward(owner(), toSend); }
     function withdrawLP(uint256 amount) external onlyOwner { IERC20 lpToken = IERC20(pair); uint256 bal = lpToken.balanceOf(address(this)); lpToken.safeTransfer(owner(), amount == 0 ? bal : amount); }
+}`;
+
+const FACTORY_SOURCE = String.raw`// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+contract ModaCreate2Factory {
+    event Deployed(address indexed deployed, bytes32 indexed salt);
+
+    function deploy(bytes32 salt, bytes memory bytecode) external payable returns (address deployed) {
+        require(bytecode.length != 0, "bytecode empty");
+        assembly {
+            deployed := create2(callvalue(), add(bytecode, 0x20), mload(bytecode), salt)
+        }
+        require(deployed != address(0), "create2 failed");
+        emit Deployed(deployed, salt);
+    }
+
+    function computeAddress(bytes32 salt, bytes32 initCodeHash) external view returns (address) {
+        return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, initCodeHash)))));
+    }
 }`;
 
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -241,7 +267,7 @@ const ERC20_ABI = [
 const CONSTRUCTOR_TYPES = [
   "string", "string", "uint256", "uint8", "address", "address", "uint256",
   "uint256", "uint256", "uint256", "uint256", "uint8", "uint256", "address",
-  "uint256", "uint256", "uint256", "uint256", "uint256", "uint256", "uint256", "bool", "uint256"
+  "address", "uint256", "uint256", "uint256", "uint256", "uint256", "uint256", "uint256", "bool", "uint256", "uint256"
 ];
 const NETWORK_DEFAULTS = {
   56: {
@@ -480,6 +506,32 @@ function readDeployLimitConfig(form) {
   return config;
 }
 
+function readVanityConfig(form) {
+  const enabled = parseBool(form.elements.vanityEnabled.value);
+  const suffix = String(form.elements.vanitySuffix.value || "").trim().toLowerCase().replace(/^0x/, "");
+  if (!enabled) return { enabled, suffix: "" };
+  if (!suffix) throw new Error("开启尾号定制时，请填写目标尾号。");
+  if (!/^[0-9a-f]+$/.test(suffix)) throw new Error("目标尾号只能填写 0-9 或 a-f。");
+  if (suffix.length > 5) throw new Error("目标尾号最多建议 5 位，避免浏览器计算过慢。");
+  return { enabled, suffix };
+}
+
+async function findCreate2Salt(factoryAddress, initCode, suffix) {
+  const initCodeHash = ethers.keccak256(initCode);
+  const normalizedSuffix = suffix.toLowerCase();
+  const max = 16 ** normalizedSuffix.length * 2;
+  for (let i = 0; i < max; i++) {
+    const salt = ethers.keccak256(ethers.solidityPacked(["address", "uint256"], [state.account, BigInt(i)]));
+    const address = ethers.getCreate2Address(factoryAddress, salt, initCodeHash);
+    if (address.toLowerCase().endsWith(normalizedSuffix)) return { salt, address, attempts: i + 1 };
+    if (i > 0 && i % 50000 === 0) {
+      log(`尾号计算中：已尝试 ${i.toLocaleString()} 次...`);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  throw new Error("没有在当前搜索范围内找到目标尾号，请缩短尾号或换一个尾号。");
+}
+
 async function applyPostDeploySettings(contract, form) {
   const tax = readDeployTaxConfig(form);
   const limit = readDeployLimitConfig(form);
@@ -598,6 +650,7 @@ async function fetchSource(path, sources, seen) {
   seen.add(path);
   let content;
   if (path === "ModaFairMintTokenV1.sol") content = CONTRACT_SOURCE;
+  else if (path === "ModaCreate2Factory.sol") content = FACTORY_SOURCE;
   else {
     const url = OPENZEPPELIN_BASE + path.replace("@openzeppelin/contracts/", "");
     const res = await fetch(url);
@@ -613,6 +666,7 @@ async function compileContract() {
   log("开始准备编译依赖...");
   const sources = {};
   await fetchSource("ModaFairMintTokenV1.sol", sources, new Set());
+  await fetchSource("ModaCreate2Factory.sol", sources, new Set());
   const input = {
     language: "Solidity",
     sources,
@@ -626,9 +680,12 @@ async function compileContract() {
   const errors = (output.errors || []).filter((e) => e.severity === "error");
   if (errors.length) throw new Error(errors.map((e) => e.formattedMessage).join("\n"));
   const contract = output.contracts["ModaFairMintTokenV1.sol"].ModaFairMintTokenV1;
+  const factory = output.contracts["ModaCreate2Factory.sol"].ModaCreate2Factory;
   state.compiled = {
     abi: contract.abi,
     bytecode: "0x" + contract.evm.bytecode.object,
+    factoryAbi: factory.abi,
+    factoryBytecode: "0x" + factory.evm.bytecode.object,
     standardJsonInput: input
   };
   log(`编译完成，ABI ${contract.abi.length} 项。`);
@@ -657,6 +714,7 @@ function deployArgs(form) {
     Number(fd.get("launchMode")),
     BigInt(launchTime),
     fd.get("marketingWallet") || state.account,
+    state.account,
     tax.buyTax,
     tax.sellTax,
     tax.transferTax,
@@ -665,7 +723,8 @@ function deployArgs(form) {
     tax.lpShare,
     tax.dividendShare,
     limit.enabled,
-    limit.maxAmount
+    limit.maxAmount,
+    parseToken(fd.get("minTokenDividendBalance"))
   ];
 }
 
@@ -679,12 +738,42 @@ async function deployContract(form) {
   setDefaultMarketingWallet();
   applyNetworkDefaults();
   const args = deployArgs(form);
-  log("请在钱包中确认部署交易...");
-  const factory = new ethers.ContractFactory(state.compiled.abi, state.compiled.bytecode, state.signer);
-  const contract = await factory.deploy(...args);
-  log(`部署交易已提交：${contract.deploymentTransaction().hash}`);
-  await contract.waitForDeployment();
-  const address = await contract.getAddress();
+  const vanity = readVanityConfig(form);
+  let contract;
+  let address;
+  let deploymentHash;
+  let factoryAddress = null;
+  let vanitySalt = null;
+  if (vanity.enabled) {
+    log("请在钱包中确认 CREATE2 工厂部署交易...");
+    const create2Factory = new ethers.ContractFactory(state.compiled.factoryAbi, state.compiled.factoryBytecode, state.signer);
+    const deployedFactory = await create2Factory.deploy();
+    deploymentHash = deployedFactory.deploymentTransaction().hash;
+    log(`工厂部署交易已提交：${deploymentHash}`);
+    await deployedFactory.waitForDeployment();
+    factoryAddress = await deployedFactory.getAddress();
+    log(`工厂部署完成：${factoryAddress}`);
+    const encodedArgs = ethers.AbiCoder.defaultAbiCoder().encode(CONSTRUCTOR_TYPES, args).slice(2);
+    const initCode = state.compiled.bytecode + encodedArgs;
+    log(`开始计算合约尾号：${vanity.suffix}`);
+    const found = await findCreate2Salt(factoryAddress, initCode, vanity.suffix);
+    vanitySalt = found.salt;
+    address = found.address;
+    log(`找到目标地址：${address}，尝试 ${found.attempts.toLocaleString()} 次`);
+    const tx = await deployedFactory.deploy(vanitySalt, initCode);
+    deploymentHash = tx.hash;
+    log(`Token 部署交易已提交：${deploymentHash}`);
+    await tx.wait();
+    contract = new ethers.Contract(address, state.compiled.abi, state.signer);
+  } else {
+    log("请在钱包中确认部署交易...");
+    const tokenFactory = new ethers.ContractFactory(state.compiled.abi, state.compiled.bytecode, state.signer);
+    contract = await tokenFactory.deploy(...args);
+    deploymentHash = contract.deploymentTransaction().hash;
+    log(`部署交易已提交：${deploymentHash}`);
+    await contract.waitForDeployment();
+    address = await contract.getAddress();
+  }
   const constructorArgs = ethers.AbiCoder.defaultAbiCoder().encode(CONSTRUCTOR_TYPES, args).slice(2);
   const deploymentInfo = {
     contractAddress: address,
@@ -694,9 +783,10 @@ async function deployContract(form) {
     optimizer: { enabled: true, runs: 200, viaIR: true },
     constructorArguments: constructorArgs,
     constructorValues: args,
+    vanity: vanity.enabled ? { factoryAddress, salt: vanitySalt, suffix: vanity.suffix } : null,
     deployer: state.account,
     chainId: (await state.provider.getNetwork()).chainId.toString(),
-    transactionHash: contract.deploymentTransaction().hash,
+    transactionHash: deploymentHash,
     deployedAt: new Date().toISOString()
   };
   makeDownload("downloadStandardJson", "verify-standard-json-input.json", jsonSafe(state.compiled.standardJsonInput));
@@ -746,13 +836,13 @@ async function refreshAdmin() {
   const [
     owner, pair, mintMode, mintPrice, tokenPerMint, mintedCount, maxMintCount, mintEnabled, tradingOpen,
     buyTax, sellTax, transferTax, marketingShare, burnShare, lpShare, dividendShare, marketingWallet, swapThreshold, dividendReserve,
-    buyLimitEnabled, maxBuyAmountPerWallet
+    buyLimitEnabled, maxBuyAmountPerWallet, minTokenDividendBalance
   ] = await Promise.all([
     state.admin.owner(), state.admin.pair(), state.admin.mintMode(), state.admin.mintPrice(), state.admin.tokenPerMint(),
     state.admin.mintedCount(), state.admin.maxMintCount(), state.admin.mintEnabled(), state.admin.tradingOpen(),
     state.admin.buyTax(), state.admin.sellTax(), state.admin.transferTax(), state.admin.marketingShare(),
     state.admin.burnShare(), state.admin.lpShare(), state.admin.dividendShare(), state.admin.marketingWallet(), state.admin.swapThreshold(),
-    state.admin.dividendReserve(), state.admin.buyLimitEnabled(), state.admin.maxBuyAmountPerWallet()
+    state.admin.dividendReserve(), state.admin.buyLimitEnabled(), state.admin.maxBuyAmountPerWallet(), state.admin.minTokenDividendBalance()
   ]);
   renderStats("adminStats", [
     ["Owner", owner], ["Pair", pair], ["Mint 模式", Number(mintMode) === 0 ? "BNB" : "USDT"],
@@ -761,7 +851,8 @@ async function refreshAdmin() {
     ["交易", tradingOpen ? "已开启" : "未开启"], ["买/卖/转税", `${buyTax}/${sellTax}/${transferTax} BP`],
     ["分配", `${marketingShare}/${burnShare}/${lpShare}/${dividendShare} BP`], ["营销钱包", marketingWallet],
     ["Swap 阈值", ethers.formatUnits(swapThreshold, 18)], ["分红储备", ethers.formatUnits(dividendReserve, 18)],
-    ["买入限购", buyLimitEnabled ? "开启" : "关闭"], ["单钱包限购", ethers.formatUnits(maxBuyAmountPerWallet, 18)]
+    ["买入限购", buyLimitEnabled ? "开启" : "关闭"], ["单钱包限购", ethers.formatUnits(maxBuyAmountPerWallet, 18)],
+    ["分红最低持仓", ethers.formatUnits(minTokenDividendBalance, 18)]
   ]);
 }
 
@@ -815,6 +906,7 @@ async function adminAction(action) {
     setSwapThreshold: () => c.setSwapThreshold(parseToken($("swapThreshold").value)),
     setBuyLimitEnabled: () => c.setBuyLimitEnabled(parseBool($("buyLimitEnabled").value)),
     setMaxBuyAmountPerWallet: () => c.setMaxBuyAmountPerWallet(parseToken($("maxBuyAmountPerWallet").value)),
+    setMinTokenDividendBalance: () => c.setMinTokenDividendBalance(parseToken($("minTokenDividendBalance").value)),
     forceSwapBack: () => c.forceSwapBack(),
     fundTokenDividend: async () => {
       const amount = parseToken($("dividendAmount").value);
@@ -837,6 +929,7 @@ async function adminAction(action) {
     },
     withdrawBNB: () => c.withdrawBNB($("withdrawBNBAmount").value ? parseToken($("withdrawBNBAmount").value) : 0n),
     withdrawToken: () => c.withdrawToken($("withdrawTokenAddress").value.trim(), $("withdrawTokenAmount").value ? parseToken($("withdrawTokenAmount").value) : 0n),
+    withdrawDividendReserve: () => c.withdrawDividendReserve($("withdrawDividendReserveAmount").value ? parseToken($("withdrawDividendReserveAmount").value) : 0n),
     withdrawLP: () => c.withdrawLP($("withdrawLPAmount").value ? parseToken($("withdrawLPAmount").value) : 0n)
   };
   if (!calls[action]) throw new Error(`未知操作：${action}`);
