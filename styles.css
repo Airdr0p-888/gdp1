@@ -181,6 +181,16 @@ input:focus, select:focus {
   font-size: 15px;
 }
 
+.mini-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.mini-stats .stat {
+  background: #0f1319;
+}
+
 .admin-groups {
   display: grid;
   grid-template-columns: repeat(2, minmax(280px, 1fr));

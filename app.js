@@ -1,5 +1,4 @@
 import { ethers } from "https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.min.js";
-import solc from "https://esm.sh/solc@0.8.24";
 
 const CONTRACT_SOURCE = String.raw`// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
@@ -8,8 +7,8 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IPancakeRouterV2 {
     function factory() external pure returns (address);
@@ -211,6 +210,20 @@ const CONSTRUCTOR_TYPES = [
   "string", "string", "uint256", "uint8", "address", "address", "uint256",
   "uint256", "uint256", "uint256", "uint256", "uint8", "uint256", "address"
 ];
+const NETWORK_DEFAULTS = {
+  56: {
+    name: "BSC 主网",
+    native: "BNB",
+    router: "0x10ED43C718714eb63d5aA57B78B54704E256024E",
+    usdt: "0x55d398326f99059fF775485246999027B3197955"
+  },
+  97: {
+    name: "BSC 测试网",
+    native: "tBNB",
+    router: "0xD99D1c33F9fC3444f8101754aBC46c52416550D1",
+    usdt: ""
+  }
+};
 const state = { provider: null, signer: null, account: null, compiled: null, admin: null, mint: null };
 
 const $ = (id) => document.getElementById(id);
@@ -240,20 +253,161 @@ function jsonSafe(value) {
   return JSON.stringify(value, (_, item) => typeof item === "bigint" ? item.toString() : item, 2);
 }
 
+const deployFormEl = () => $("deployForm");
+
+function formField(name) {
+  return deployFormEl()?.elements?.[name];
+}
+
+function percentToBp(value) {
+  return BigInt(Math.round(Number(value || 0) * 100));
+}
+
+function activeNetworkDefaults() {
+  return state.network ? NETWORK_DEFAULTS[Number(state.network.chainId)] : null;
+}
+
+function shouldReplaceAddress(input, knownValues) {
+  const value = (input.value || "").trim().toLowerCase();
+  if (!value) return true;
+  return knownValues.filter(Boolean).map((v) => v.toLowerCase()).includes(value);
+}
+
+function applyNetworkDefaults(force = false) {
+  const defaults = activeNetworkDefaults();
+  if (!defaults) {
+    updateDeployHints();
+    return;
+  }
+  const router = formField("router");
+  const usdt = formField("usdtAddress");
+  const knownRouters = Object.values(NETWORK_DEFAULTS).map((n) => n.router);
+  const knownUsdt = Object.values(NETWORK_DEFAULTS).map((n) => n.usdt);
+  if (router && defaults.router && (force || shouldReplaceAddress(router, knownRouters))) router.value = defaults.router;
+  if (usdt && defaults.usdt && (force || shouldReplaceAddress(usdt, knownUsdt))) usdt.value = defaults.usdt;
+  updateDeployHints();
+}
+
+function setDefaultMarketingWallet(force = false) {
+  const marketing = formField("marketingWallet");
+  if (marketing && state.account && (force || !marketing.value.trim())) marketing.value = state.account;
+}
+
+function formatNumber(value) {
+  if (!Number.isFinite(value)) return "0";
+  return value.toLocaleString("en-US", { maximumFractionDigits: 6 });
+}
+
+function updateDeployHints() {
+  const form = deployFormEl();
+  if (!form) return;
+  const total = Number(form.elements.totalSupply.value || 0);
+  const perMint = Number(form.elements.tokenPerMint.value || 0);
+  const maxMint = Number(form.elements.maxMintCount.value || 0);
+  const price = Number(form.elements.mintPrice.value || 0);
+  const mintedTokenPlan = perMint * maxMint;
+  const remaining = total - mintedTokenPlan;
+  const defaults = activeNetworkDefaults();
+  const currency = Number(form.elements.mintMode.value) === 0 ? (defaults?.native || "BNB") : "USDT";
+  renderStats("deployHints", [
+    ["Mint 覆盖代币", formatNumber(mintedTokenPlan)],
+    ["合约剩余预留", formatNumber(remaining)],
+    ["预计总募集", `${formatNumber(price * maxMint)} ${currency}`]
+  ]);
+}
+
+function syncMintPlan(changedName) {
+  const form = deployFormEl();
+  if (!form) return;
+  const total = Number(form.elements.totalSupply.value || 0);
+  const perMintInput = form.elements.tokenPerMint;
+  const maxMintInput = form.elements.maxMintCount;
+  const perMint = Number(perMintInput.value || 0);
+  const maxMint = Number(maxMintInput.value || 0);
+
+  if ((changedName === "totalSupply" || changedName === "maxMintCount") && total > 0 && maxMint > 0) {
+    perMintInput.value = String(Math.floor(total / maxMint));
+  }
+  if (changedName === "tokenPerMint" && total > 0 && perMint > 0) {
+    maxMintInput.value = String(Math.floor(total / perMint));
+  }
+  updateDeployHints();
+}
+
+function getInjectedWallet() {
+  const eth = window.ethereum;
+  const candidates = [
+    ...(eth?.providers || []),
+    window.tokenpocket?.ethereum,
+    window.tp?.ethereum,
+    eth
+  ].filter(Boolean);
+  const metamask = candidates.find((p) => p.isMetaMask);
+  const tokenPocket = candidates.find((p) => p.isTokenPocket || p.isTpWallet || p.isTokenPocketWallet);
+  return metamask || tokenPocket || candidates[0] || null;
+}
+
+function walletHelpText() {
+  const url = location.href;
+  return [
+    "没有检测到钱包插件。",
+    "电脑端请用安装了 MetaMask 的 Chrome/Edge 打开本页面。",
+    "手机端请在 TokenPocket 或 MetaMask App 内置浏览器打开：",
+    url
+  ].join("\n");
+}
+
+function compileWithWorker(input) {
+  const workerCode = `
+    import solc from "https://esm.sh/solc@0.8.24";
+    self.onmessage = (event) => {
+      try {
+        const output = solc.compile(JSON.stringify(event.data), {
+          import: (path) => ({ error: "Missing import " + path })
+        });
+        self.postMessage({ ok: true, output });
+      } catch (error) {
+        self.postMessage({ ok: false, error: error && error.message ? error.message : String(error) });
+      }
+    };
+  `;
+  const blob = new Blob([workerCode], { type: "text/javascript" });
+  const workerUrl = URL.createObjectURL(blob);
+  const worker = new Worker(workerUrl, { type: "module" });
+  return new Promise((resolve, reject) => {
+    worker.onmessage = (event) => {
+      worker.terminate();
+      URL.revokeObjectURL(workerUrl);
+      if (event.data.ok) resolve(JSON.parse(event.data.output));
+      else reject(new Error(event.data.error));
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      URL.revokeObjectURL(workerUrl);
+      reject(new Error(event.message || "Solidity compiler worker failed"));
+    };
+    worker.postMessage(input);
+  });
+}
+
 function setBusy(button, busy) {
   if (!button) return;
   button.disabled = busy;
 }
 
 async function connectWallet() {
-  if (!window.ethereum) throw new Error("没有检测到浏览器钱包，请安装 MetaMask 或 OKX Wallet。");
-  state.provider = new ethers.BrowserProvider(window.ethereum);
+  const injected = getInjectedWallet();
+  if (!injected) throw new Error(walletHelpText());
+  state.provider = new ethers.BrowserProvider(injected);
   await state.provider.send("eth_requestAccounts", []);
   state.signer = await state.provider.getSigner();
   state.account = await state.signer.getAddress();
   const network = await state.provider.getNetwork();
+  state.network = network;
   $("walletAddress").textContent = state.account;
   $("networkName").textContent = `${network.name} / chainId ${network.chainId}`;
+  setDefaultMarketingWallet();
+  applyNetworkDefaults();
 }
 
 function normalizeImport(path) {
@@ -301,13 +455,12 @@ async function compileContract() {
     language: "Solidity",
     sources,
     settings: {
+      viaIR: true,
       optimizer: { enabled: true, runs: 200 },
       outputSelection: { "*": { "*": ["abi", "evm.bytecode.object"] } }
     }
   };
-  const output = JSON.parse(solc.compile(JSON.stringify(input), {
-    import: (path) => sources[normalizeImport(path)] || { error: `Missing import ${path}` }
-  }));
+  const output = await compileWithWorker(input);
   const errors = (output.errors || []).filter((e) => e.severity === "error");
   if (errors.length) throw new Error(errors.map((e) => e.formattedMessage).join("\n"));
   const contract = output.contracts["ModaFairMintTokenV1.sol"].ModaFairMintTokenV1;
@@ -334,11 +487,11 @@ function deployArgs(form) {
     parseToken(fd.get("mintPrice")),
     parseToken(fd.get("tokenPerMint")),
     BigInt(fd.get("maxMintCount")),
-    BigInt(fd.get("userMintShare")),
-    BigInt(fd.get("lpFundShare")),
+    percentToBp(fd.get("userMintShare")),
+    percentToBp(fd.get("lpFundShare")),
     Number(fd.get("launchMode")),
     BigInt(launchTime),
-    fd.get("marketingWallet")
+    fd.get("marketingWallet") || state.account
   ];
 }
 
@@ -359,7 +512,7 @@ async function deployContract(ev) {
     contractName: "ModaFairMintTokenV1.sol:ModaFairMintTokenV1",
     compilerVersion: "v0.8.24+commit.e11b9ed9",
     openZeppelinVersion: "5.0.2",
-    optimizer: { enabled: true, runs: 200 },
+    optimizer: { enabled: true, runs: 200, viaIR: true },
     constructorArguments: constructorArgs,
     constructorValues: args,
     deployer: state.account,
@@ -518,6 +671,19 @@ $("claimDividends").addEventListener("click", async (e) => run(e.currentTarget, 
 $("loadAdmin").addEventListener("click", async (e) => run(e.currentTarget, async () => { state.admin = await contractAt($("adminContractAddress").value.trim()); await refreshAdmin(); }));
 $("refreshAdmin").addEventListener("click", async (e) => run(e.currentTarget, refreshAdmin));
 document.querySelectorAll("[data-action]").forEach((btn) => btn.addEventListener("click", async () => run(btn, () => adminAction(btn.dataset.action))));
+
+["totalSupply", "tokenPerMint", "maxMintCount", "mintPrice"].forEach((name) => {
+  formField(name)?.addEventListener("input", () => syncMintPlan(name));
+});
+formField("mintMode")?.addEventListener("change", () => {
+  applyNetworkDefaults();
+  updateDeployHints();
+});
+window.ethereum?.on?.("chainChanged", () => {
+  state.network = null;
+  connectWallet().catch((err) => log(err.shortMessage || err.message || String(err)));
+});
+updateDeployHints();
 
 async function run(button, fn) {
   try {
