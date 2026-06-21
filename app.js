@@ -77,12 +77,15 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     event LPDividendFunded(uint256 amount);
     event DividendClaimed(address indexed user, uint256 tokenReward, uint256 lpReward);
     modifier lockSwap() { inSwap = true; _; inSwap = false; }
-    constructor(string memory name_, string memory symbol_, uint256 totalSupply_, MintMode mintMode_, address usdtAddress_, address router_, uint256 mintPrice_, uint256 tokenPerMint_, uint256 maxMintCount_, uint256 userMintShare_, uint256 lpFundShare_, LaunchMode launchMode_, uint256 launchTime_, address marketingWallet_) ERC20(name_, symbol_) Ownable(msg.sender) {
+    constructor(string memory name_, string memory symbol_, uint256 totalSupply_, MintMode mintMode_, address usdtAddress_, address router_, uint256 mintPrice_, uint256 tokenPerMint_, uint256 maxMintCount_, uint256 userMintShare_, uint256 lpFundShare_, LaunchMode launchMode_, uint256 launchTime_, address marketingWallet_, uint256 buyTax_, uint256 sellTax_, uint256 transferTax_, uint256 marketingShare_, uint256 burnShare_, uint256 lpShare_, uint256 dividendShare_, bool buyLimitEnabled_, uint256 maxBuyAmountPerWallet_) ERC20(name_, symbol_) Ownable(msg.sender) {
         require(totalSupply_ > 0, "totalSupply zero");
         require(router_ != address(0), "router zero");
         require(marketingWallet_ != address(0), "marketing zero");
         require(userMintShare_ <= DENOMINATOR, "bad user share");
         require(lpFundShare_ <= DENOMINATOR, "bad lp fund share");
+        require(buyTax_ <= MAX_TAX && sellTax_ <= MAX_TAX && transferTax_ <= MAX_TAX, "tax > 10%");
+        require(marketingShare_ + burnShare_ + lpShare_ + dividendShare_ == DENOMINATOR, "sum != 10000");
+        if (buyLimitEnabled_) require(maxBuyAmountPerWallet_ > 0, "buy limit zero");
         if (mintMode_ == MintMode.USDT) require(usdtAddress_ != address(0), "usdt zero");
         if (launchMode_ == LaunchMode.TIME) require(launchTime_ > block.timestamp, "bad launch time");
         mintMode = mintMode_;
@@ -96,6 +99,15 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
         launchMode = launchMode_;
         launchTime = launchTime_;
         marketingWallet = marketingWallet_;
+        buyTax = buyTax_;
+        sellTax = sellTax_;
+        transferTax = transferTax_;
+        marketingShare = marketingShare_;
+        burnShare = burnShare_;
+        lpShare = lpShare_;
+        dividendShare = dividendShare_;
+        buyLimitEnabled = buyLimitEnabled_;
+        maxBuyAmountPerWallet = maxBuyAmountPerWallet_;
         deadWallet = 0x000000000000000000000000000000000000dEaD;
         address base = mintMode_ == MintMode.BNB ? router.WETH() : usdtAddress_;
         pair = IPancakeFactoryV2(router.factory()).createPair(address(this), base);
@@ -134,7 +146,7 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
         if (!tradingOpen && launchMode == LaunchMode.TIME && launchTime > 0 && block.timestamp >= launchTime) { tradingOpen = true; emit TradingOpened(block.timestamp); }
         bool exemptLimit = isExcludedFromLimits[from] || isExcludedFromLimits[to];
         if (!tradingOpen && !exemptLimit) revert("trading not open");
-        if (!inSwap && swapEnabled && from != pair) { uint256 contractTokenBalance = balanceOf(address(this)); if (contractTokenBalance >= swapThreshold && swapThreshold > 0) _swapBack(contractTokenBalance); }
+        if (!inSwap && swapEnabled && from != pair && from != address(this)) { uint256 contractTokenBalance = balanceOf(address(this)); if (contractTokenBalance >= swapThreshold && swapThreshold > 0) _swapBack(contractTokenBalance); }
         uint256 taxAmount = 0;
         if (!inSwap && !isExcludedFromFee[from] && !isExcludedFromFee[to]) {
             uint256 taxRate; if (from == pair) taxRate = buyTax; else if (to == pair) taxRate = sellTax; else taxRate = transferTax;
@@ -222,11 +234,14 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 const OPENZEPPELIN_BASE = "https://unpkg.com/@openzeppelin/contracts@5.0.2/";
 const ERC20_ABI = [
   "function approve(address spender,uint256 amount) external returns (bool)",
-  "function allowance(address owner,address spender) view returns (uint256)"
+  "function allowance(address owner,address spender) view returns (uint256)",
+  "function balanceOf(address account) view returns (uint256)",
+  "function decimals() view returns (uint8)"
 ];
 const CONSTRUCTOR_TYPES = [
   "string", "string", "uint256", "uint8", "address", "address", "uint256",
-  "uint256", "uint256", "uint256", "uint256", "uint8", "uint256", "address"
+  "uint256", "uint256", "uint256", "uint256", "uint8", "uint256", "address",
+  "uint256", "uint256", "uint256", "uint256", "uint256", "uint256", "uint256", "bool", "uint256"
 ];
 const NETWORK_DEFAULTS = {
   56: {
@@ -255,6 +270,12 @@ async function approveIfNeeded(tokenAddress, spender, amount, label) {
   const allowance = await token.allowance(state.account, spender);
   if (allowance >= amount) return;
   await txDone(await token.approve(spender, amount), `${label} 授权`);
+}
+
+async function assertTokenBalance(tokenAddress, owner, amount, label) {
+  const token = new ethers.Contract(tokenAddress, ERC20_ABI, state.signer);
+  const balance = await token.balanceOf(owner);
+  if (balance < amount) throw new Error(`${label} 余额不足。需要 ${ethers.formatUnits(amount, 18)}，当前 ${ethers.formatUnits(balance, 18)}。`);
 }
 
 function makeDownload(id, filename, content, type = "application/json") {
@@ -607,6 +628,8 @@ async function compileContract() {
 function deployArgs(form) {
   if (!(form instanceof HTMLFormElement)) throw new Error("没有读取到部署表单，请刷新页面后重试。");
   const fd = new FormData(form);
+  const tax = readDeployTaxConfig(form);
+  const limit = readDeployLimitConfig(form);
   const launchRaw = fd.get("launchTime");
   const launchTime = launchRaw ? Math.floor(new Date(launchRaw).getTime() / 1000) : 0;
   return [
@@ -623,7 +646,16 @@ function deployArgs(form) {
     percentToBp(fd.get("lpFundShare")),
     Number(fd.get("launchMode")),
     BigInt(launchTime),
-    fd.get("marketingWallet") || state.account
+    fd.get("marketingWallet") || state.account,
+    tax.buyTax,
+    tax.sellTax,
+    tax.transferTax,
+    tax.marketingShare,
+    tax.burnShare,
+    tax.lpShare,
+    tax.dividendShare,
+    limit.enabled,
+    limit.maxAmount
   ];
 }
 
@@ -643,7 +675,6 @@ async function deployContract(form) {
   log(`部署交易已提交：${contract.deploymentTransaction().hash}`);
   await contract.waitForDeployment();
   const address = await contract.getAddress();
-  await applyPostDeploySettings(contract, form);
   const constructorArgs = ethers.AbiCoder.defaultAbiCoder().encode(CONSTRUCTOR_TYPES, args).slice(2);
   const deploymentInfo = {
     contractAddress: address,
@@ -653,10 +684,6 @@ async function deployContract(form) {
     optimizer: { enabled: true, runs: 200, viaIR: true },
     constructorArguments: constructorArgs,
     constructorValues: args,
-    postDeploySettings: {
-      taxes: readDeployTaxConfig(form),
-      buyLimit: readDeployLimitConfig(form)
-    },
     deployer: state.account,
     chainId: (await state.provider.getNetwork()).chainId.toString(),
     transactionHash: contract.deploymentTransaction().hash,
@@ -740,7 +767,9 @@ async function mintNow() {
   const price = await state.mint.mintPrice();
   if (mode === 0) await txDone(await state.mint.mintBNB({ value: price }), "Mint");
   else {
-    await approveIfNeeded(await state.mint.usdtAddress(), contractAddress, price, "USDT Mint");
+    const usdt = await state.mint.usdtAddress();
+    await assertTokenBalance(usdt, state.account, price, "USDT Mint");
+    await approveIfNeeded(usdt, contractAddress, price, "USDT Mint");
     await txDone(await state.mint.mintUSDT(), "Mint");
   }
   await refreshMint();
@@ -849,7 +878,12 @@ async function run(button, fn) {
     await fn();
   } catch (err) {
     console.error(err);
-    log(err.shortMessage || err.message || String(err));
+    const message = err.shortMessage || err.message || String(err);
+    if (message.includes("TRANSFER_FROM_FAILED")) {
+      log("TRANSFER_FROM_FAILED：通常是 USDT 地址/Router 地址不匹配、USDT 余额不足、授权不足，或当前链不是该 Router 所在网络。请先确认 Mint 模式、USDT 地址、Pancake Router 和钱包网络一致。");
+    } else {
+      log(message);
+    }
   } finally {
     setBusy(button, false);
   }
