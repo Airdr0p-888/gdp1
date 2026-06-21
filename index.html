@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Moda Fair Mint 控制台</title>
     <link rel="stylesheet" href="./styles.css" />
-    <script type="module" src="./app.js?v=20260621-dividend-visible"></script>
+    <script type="module" src="./app.js?v=20260621-deploy-sections"></script>
   </head>
   <body>
     <div class="shell">
@@ -38,29 +38,67 @@
             <button id="compileContract" class="secondary">编译合约</button>
           </div>
 
-          <form id="deployForm" class="grid">
-            <label>代币名称<input name="name" value="Moda Fair Mint Token" required /></label>
-            <label>代币符号<input name="symbol" value="MODA" required /></label>
-            <label>总供应量<input name="totalSupply" type="number" value="1000000000" min="1" required /></label>
-            <label>Mint 模式<select name="mintMode"><option value="0">BNB</option><option value="1">USDT</option></select></label>
-            <label>USDT 地址<input name="usdtAddress" placeholder="连接钱包后自动填写" /></label>
-            <label>Router 地址<input name="router" placeholder="连接钱包后自动填写" required /></label>
-            <label>单次 Mint 价格<input name="mintPrice" type="number" step="0.000000000000000001" value="0.01" required /></label>
-            <label>单次 Mint 代币数<input name="tokenPerMint" type="number" value="1000000" min="1" required /></label>
-            <label>最大 Mint 次数<input name="maxMintCount" type="number" value="1000" min="1" required /></label>
-            <label>用户拿到代币比例 %<input name="userMintShare" type="number" value="70" min="0" max="100" step="0.01" required /></label>
-            <label>进入流动性的募集资金 %<input name="lpFundShare" type="number" value="80" min="0" max="100" step="0.01" required /></label>
-            <label>买入税 %<input name="buyTax" type="number" value="0" min="0" max="10" step="0.01" required /></label>
-            <label>卖出税 %<input name="sellTax" type="number" value="0" min="0" max="10" step="0.01" required /></label>
-            <label>转账税 %<input name="transferTax" type="number" value="0" min="0" max="10" step="0.01" required /></label>
-            <label>税收给营销 %<input name="marketingShare" type="number" value="100" min="0" max="100" step="0.01" required /></label>
-            <label>税收销毁 %<input name="burnShare" type="number" value="0" min="0" max="100" step="0.01" required /></label>
-            <label>税收回流 LP %<input name="lpShare" type="number" value="0" min="0" max="100" step="0.01" required /></label>
-            <label>税收持币分红 %<input name="dividendShare" type="number" value="0" min="0" max="100" step="0.01" required /></label>
-            <label>开盘模式<select name="launchMode"><option value="0">手动</option><option value="1">定时</option><option value="2">Mint 满自动</option></select></label>
-            <label>开盘时间<input name="launchTime" type="datetime-local" /></label>
-            <label>营销钱包<input name="marketingWallet" placeholder="默认使用部署钱包" /></label>
-            <div id="deployHints" class="wide mini-stats"></div>
+          <form id="deployForm" class="deploy-form">
+            <fieldset>
+              <legend>基础信息</legend>
+              <div class="grid">
+                <label>代币名称<input name="name" value="Moda Fair Mint Token" required /></label>
+                <label>代币符号<input name="symbol" value="MODA" required /></label>
+                <label>总供应量<input name="totalSupply" type="number" value="1000000000" min="1" required /></label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>网络地址</legend>
+              <div class="grid">
+                <label>Mint 模式<select name="mintMode"><option value="0">BNB</option><option value="1">USDT</option></select></label>
+                <label>USDT 地址<input name="usdtAddress" placeholder="连接钱包后自动填写" /></label>
+                <label>Router 地址<input name="router" placeholder="连接钱包后自动填写" required /></label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Mint 配置</legend>
+              <div class="grid">
+                <label>单次 Mint 价格<input name="mintPrice" type="number" step="0.000000000000000001" value="0.01" required /></label>
+                <label>单次 Mint 代币数<input name="tokenPerMint" type="number" value="1000000" min="1" required /></label>
+                <label>最大 Mint 次数<input name="maxMintCount" type="number" value="1000" min="1" required /></label>
+                <label>用户拿到代币比例 %<input name="userMintShare" type="number" value="70" min="0" max="100" step="0.01" required /></label>
+                <label>进入流动性的募集资金 %<input name="lpFundShare" type="number" value="80" min="0" max="100" step="0.01" required /></label>
+              </div>
+              <div id="deployHints" class="mini-stats"></div>
+            </fieldset>
+
+            <fieldset>
+              <legend>税率与分配</legend>
+              <div class="grid">
+                <label>买入税 %<input name="buyTax" type="number" value="0" min="0" max="10" step="0.01" required /></label>
+                <label>卖出税 %<input name="sellTax" type="number" value="0" min="0" max="10" step="0.01" required /></label>
+                <label>转账税 %<input name="transferTax" type="number" value="0" min="0" max="10" step="0.01" required /></label>
+                <label>税收给营销 %<input name="marketingShare" type="number" value="100" min="0" max="100" step="0.01" required /></label>
+                <label>税收销毁 %<input name="burnShare" type="number" value="0" min="0" max="100" step="0.01" required /></label>
+                <label>税收回流 LP %<input name="lpShare" type="number" value="0" min="0" max="100" step="0.01" required /></label>
+                <label>税收持币分红 %<input name="dividendShare" type="number" value="0" min="0" max="100" step="0.01" required /></label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>限购</legend>
+              <div class="grid">
+                <label>买入限购<select name="buyLimitEnabled"><option value="false">关闭</option><option value="true">开启</option></select></label>
+                <label>单钱包累计限购代币数<input name="maxBuyAmountPerWallet" type="number" value="0" min="0" step="1" /></label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>开盘与钱包</legend>
+              <div class="grid">
+                <label>开盘模式<select name="launchMode"><option value="0">手动</option><option value="1">定时</option><option value="2">Mint 满自动</option></select></label>
+                <label>开盘时间<input name="launchTime" type="datetime-local" /></label>
+                <label>营销钱包<input name="marketingWallet" placeholder="默认使用部署钱包" /></label>
+              </div>
+            </fieldset>
+
             <button class="primary wide" type="submit">部署合约</button>
           </form>
           <div id="verificationBox" class="downloads" hidden>
@@ -134,6 +172,12 @@
               <div class="row"><input id="marketingWallet" placeholder="营销钱包" /><button data-action="setMarketingWallet">设置钱包</button></div>
               <div class="row"><input id="swapThreshold" placeholder="Swap 阈值" /><button data-action="setSwapThreshold">设置阈值</button></div>
               <button data-action="forceSwapBack">执行 SwapBack</button>
+            </article>
+
+            <article>
+              <h3>买入限购</h3>
+              <div class="row"><select id="buyLimitEnabled"><option value="true">开启限购</option><option value="false">关闭限购</option></select><button data-action="setBuyLimitEnabled">保存</button></div>
+              <div class="row"><input id="maxBuyAmountPerWallet" placeholder="单钱包累计限购代币数" /><button data-action="setMaxBuyAmountPerWallet">设置数量</button></div>
             </article>
 
             <article>

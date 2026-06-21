@@ -129,6 +129,26 @@ button:disabled { opacity: .55; cursor: wait; }
   gap: 16px;
 }
 
+.deploy-form {
+  display: grid;
+  gap: 16px;
+}
+
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  margin: 0;
+  background: #151a21;
+}
+
+legend {
+  padding: 0 8px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 800;
+}
+
 .grid.compact {
   grid-template-columns: minmax(240px, 1fr) auto;
   align-items: end;

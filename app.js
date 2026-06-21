@@ -48,6 +48,9 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     mapping(address => bool) public whitelist;
     mapping(address => bool) public isExcludedFromLimits;
     mapping(address => bool) public isExcludedFromFee;
+    mapping(address => uint256) public boughtAmount;
+    bool public buyLimitEnabled;
+    uint256 public maxBuyAmountPerWallet;
     uint256 public buyTax;
     uint256 public sellTax;
     uint256 public transferTax;
@@ -138,6 +141,7 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
             if (taxRate > 0) taxAmount = amount * taxRate / DENOMINATOR;
         }
         if (taxAmount > 0) { super._update(from, address(this), taxAmount); amount -= taxAmount; }
+        if (buyLimitEnabled && from == pair && !isExcludedFromLimits[to]) { boughtAmount[to] += amount; require(boughtAmount[to] <= maxBuyAmountPerWallet, "buy limit"); }
         _settleTokenDividend(from); _settleTokenDividend(to); super._update(from, to, amount);
     }
     function _openTrading() internal { if (!tradingOpen) { tradingOpen = true; mintEnabled = false; emit TradingOpened(block.timestamp); } }
@@ -192,6 +196,8 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     function setWhitelist(address user, bool v) external onlyOwner { whitelist[user] = v; }
     function batchSetWhitelist(address[] calldata users, bool v) external onlyOwner { for (uint i; i < users.length; i++) whitelist[users[i]] = v; }
     function setExcludedFromFee(address user, bool v) external onlyOwner { isExcludedFromFee[user] = v; }
+    function setBuyLimitEnabled(bool v) external onlyOwner { buyLimitEnabled = v; }
+    function setMaxBuyAmountPerWallet(uint256 v) external onlyOwner { maxBuyAmountPerWallet = v; }
     function setBuyTax(uint256 v) external onlyOwner { require(v <= MAX_TAX, "tax > 10%"); buyTax = v; }
     function setSellTax(uint256 v) external onlyOwner { require(v <= MAX_TAX, "tax > 10%"); sellTax = v; }
     function setTransferTax(uint256 v) external onlyOwner { require(v <= MAX_TAX, "tax > 10%"); transferTax = v; }
@@ -374,13 +380,25 @@ function readDeployTaxConfig(form) {
   return config;
 }
 
+function readDeployLimitConfig(form) {
+  const config = {
+    enabled: parseBool(form.elements.buyLimitEnabled.value),
+    maxAmount: parseToken(form.elements.maxBuyAmountPerWallet.value)
+  };
+  if (config.enabled && config.maxAmount == 0n) throw new Error("开启限购时，单钱包累计限购代币数必须大于 0。");
+  return config;
+}
+
 async function applyPostDeploySettings(contract, form) {
   const tax = readDeployTaxConfig(form);
+  const limit = readDeployLimitConfig(form);
   const jobs = [
     ["设置买入税", tax.buyTax, () => contract.setBuyTax(tax.buyTax)],
     ["设置卖出税", tax.sellTax, () => contract.setSellTax(tax.sellTax)],
     ["设置转账税", tax.transferTax, () => contract.setTransferTax(tax.transferTax)],
-    ["设置税收分配", 1n, () => contract.setTaxShares(tax.marketingShare, tax.burnShare, tax.lpShare, tax.dividendShare)]
+    ["设置税收分配", 1n, () => contract.setTaxShares(tax.marketingShare, tax.burnShare, tax.lpShare, tax.dividendShare)],
+    ["设置限购数量", limit.maxAmount, () => contract.setMaxBuyAmountPerWallet(limit.maxAmount)],
+    ["设置限购开关", limit.enabled ? 1n : 0n, () => contract.setBuyLimitEnabled(limit.enabled)]
   ];
   for (const [label, value, call] of jobs) {
     if (value > 0n) await txDone(await call(), label);
@@ -576,7 +594,8 @@ async function deployContract(form) {
     constructorArguments: constructorArgs,
     constructorValues: args,
     postDeploySettings: {
-      taxes: readDeployTaxConfig(form)
+      taxes: readDeployTaxConfig(form),
+      buyLimit: readDeployLimitConfig(form)
     },
     deployer: state.account,
     chainId: (await state.provider.getNetwork()).chainId.toString(),
@@ -629,13 +648,14 @@ async function refreshAdmin() {
   if (!state.admin) return;
   const [
     owner, pair, mintMode, mintPrice, tokenPerMint, mintedCount, maxMintCount, mintEnabled, tradingOpen,
-    buyTax, sellTax, transferTax, marketingShare, burnShare, lpShare, dividendShare, marketingWallet, swapThreshold, dividendReserve
+    buyTax, sellTax, transferTax, marketingShare, burnShare, lpShare, dividendShare, marketingWallet, swapThreshold, dividendReserve,
+    buyLimitEnabled, maxBuyAmountPerWallet
   ] = await Promise.all([
     state.admin.owner(), state.admin.pair(), state.admin.mintMode(), state.admin.mintPrice(), state.admin.tokenPerMint(),
     state.admin.mintedCount(), state.admin.maxMintCount(), state.admin.mintEnabled(), state.admin.tradingOpen(),
     state.admin.buyTax(), state.admin.sellTax(), state.admin.transferTax(), state.admin.marketingShare(),
     state.admin.burnShare(), state.admin.lpShare(), state.admin.dividendShare(), state.admin.marketingWallet(), state.admin.swapThreshold(),
-    state.admin.dividendReserve()
+    state.admin.dividendReserve(), state.admin.buyLimitEnabled(), state.admin.maxBuyAmountPerWallet()
   ]);
   renderStats("adminStats", [
     ["Owner", owner], ["Pair", pair], ["Mint 模式", Number(mintMode) === 0 ? "BNB" : "USDT"],
@@ -643,7 +663,8 @@ async function refreshAdmin() {
     ["Mint 进度", `${mintedCount} / ${maxMintCount}`], ["Mint", mintEnabled ? "开启" : "关闭"],
     ["交易", tradingOpen ? "已开启" : "未开启"], ["买/卖/转税", `${buyTax}/${sellTax}/${transferTax} BP`],
     ["分配", `${marketingShare}/${burnShare}/${lpShare}/${dividendShare} BP`], ["营销钱包", marketingWallet],
-    ["Swap 阈值", ethers.formatUnits(swapThreshold, 18)], ["分红储备", ethers.formatUnits(dividendReserve, 18)]
+    ["Swap 阈值", ethers.formatUnits(swapThreshold, 18)], ["分红储备", ethers.formatUnits(dividendReserve, 18)],
+    ["买入限购", buyLimitEnabled ? "开启" : "关闭"], ["单钱包限购", ethers.formatUnits(maxBuyAmountPerWallet, 18)]
   ]);
 }
 
@@ -693,6 +714,8 @@ async function adminAction(action) {
     setTaxShares: () => c.setTaxShares(BigInt($("marketingShare").value), BigInt($("burnShare").value), BigInt($("lpShare").value), BigInt($("dividendShare").value)),
     setMarketingWallet: () => c.setMarketingWallet($("marketingWallet").value.trim()),
     setSwapThreshold: () => c.setSwapThreshold(parseToken($("swapThreshold").value)),
+    setBuyLimitEnabled: () => c.setBuyLimitEnabled(parseBool($("buyLimitEnabled").value)),
+    setMaxBuyAmountPerWallet: () => c.setMaxBuyAmountPerWallet(parseToken($("maxBuyAmountPerWallet").value)),
     forceSwapBack: () => c.forceSwapBack(),
     fundTokenDividend: async () => {
       const amount = parseToken($("dividendAmount").value);
