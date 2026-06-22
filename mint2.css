@@ -159,6 +159,12 @@ button:disabled {
   min-width: 104px;
 }
 
+.connect-button.connected {
+  background: #1f2630;
+  color: var(--green);
+  border-color: rgba(14, 203, 129, .35);
+}
+
 .action-button {
   min-height: 48px;
   font-size: 16px;
@@ -221,7 +227,7 @@ button:disabled {
 
 .contract-card {
   width: min(760px, 100%);
-  display: grid;
+  display: none;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: end;
