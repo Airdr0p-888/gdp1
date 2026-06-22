@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mint Portal</title>
+    <link rel="stylesheet" href="./mint2.css" />
+    <script type="module" src="./mint2.js?v=20260623-mint2"></script>
+  </head>
+  <body>
+    <main class="page">
+      <header class="top-nav">
+        <div class="brand-mark">
+          <span class="mark-shape"></span>
+          <strong>Mint</strong>
+        </div>
+        <div class="account-strip">
+          <div class="account-chip">
+            <span>钱包</span>
+            <strong id="walletAddress">未连接</strong>
+          </div>
+          <div class="account-chip">
+            <span>网络</span>
+            <strong id="networkName">未知</strong>
+          </div>
+          <button id="connectWallet" class="connect-button">连接钱包</button>
+        </div>
+      </header>
+
+      <section class="hero-grid">
+        <article class="headline-card">
+          <p class="eyebrow">Launch Market</p>
+          <h1 id="tokenTitle">Mint Portal</h1>
+          <div class="contract-card">
+            <label>
+              <span>合约地址</span>
+              <input id="contractAddress" placeholder="输入 Token 合约地址" />
+            </label>
+            <button id="loadContract" class="ghost-button">读取合约</button>
+          </div>
+        </article>
+
+        <aside class="market-board">
+          <div class="board-row">
+            <span>Mode</span>
+            <strong id="mintModeBadge" class="value-pill">未读取</strong>
+          </div>
+          <div class="board-row">
+            <span>Reward</span>
+            <strong id="rewardUnitBadge" class="value-pill amber">-</strong>
+          </div>
+          <div class="board-line"></div>
+          <div class="depth-bars">
+            <i style="--w: 88%"></i>
+            <i style="--w: 62%"></i>
+            <i style="--w: 74%"></i>
+            <i style="--w: 46%"></i>
+            <i style="--w: 58%"></i>
+          </div>
+        </aside>
+      </section>
+
+      <section class="dashboard">
+        <article class="trade-card mint-card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">Mint</p>
+              <h2>参与 Mint</h2>
+            </div>
+          </div>
+          <div id="mintStats" class="stats"></div>
+          <button id="mintNow" class="action-button">立即 Mint</button>
+        </article>
+
+        <article class="trade-card reward-card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">Rewards</p>
+              <h2>领取分红</h2>
+            </div>
+          </div>
+          <div id="rewardStats" class="stats"></div>
+          <button id="claimDividends" class="ghost-button wide">领取分红</button>
+        </article>
+      </section>
+
+      <pre id="log" class="sr-log" aria-live="polite"></pre>
+    </main>
+  </body>
+</html>
