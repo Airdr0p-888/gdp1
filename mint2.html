@@ -39,25 +39,6 @@
             <button id="loadContract" class="ghost-button">读取合约</button>
           </div>
         </article>
-
-        <aside class="market-board">
-          <div class="board-row">
-            <span>Mode</span>
-            <strong id="mintModeBadge" class="value-pill">未读取</strong>
-          </div>
-          <div class="board-row">
-            <span>Reward</span>
-            <strong id="rewardUnitBadge" class="value-pill amber">-</strong>
-          </div>
-          <div class="board-line"></div>
-          <div class="depth-bars">
-            <i style="--w: 88%"></i>
-            <i style="--w: 62%"></i>
-            <i style="--w: 74%"></i>
-            <i style="--w: 46%"></i>
-            <i style="--w: 58%"></i>
-          </div>
-        </aside>
       </section>
 
       <section class="dashboard">
@@ -85,6 +66,8 @@
       </section>
 
       <pre id="log" class="sr-log" aria-live="polite"></pre>
+      <span id="mintModeBadge" class="sr-log">未读取</span>
+      <span id="rewardUnitBadge" class="sr-log">-</span>
     </main>
   </body>
 </html>

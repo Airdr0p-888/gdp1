@@ -170,12 +170,11 @@ button:disabled {
 
 .hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  grid-template-columns: 1fr;
   gap: 14px;
 }
 
 .headline-card,
-.market-board,
 .trade-card {
   border: 1px solid var(--line);
   background: rgba(17, 22, 28, .94);
@@ -253,65 +252,6 @@ input:focus {
   box-shadow: 0 0 0 3px rgba(240, 185, 11, .12);
 }
 
-.market-board {
-  min-height: 280px;
-  border-radius: 16px;
-  padding: 18px;
-  display: grid;
-  align-content: space-between;
-  gap: 14px;
-  background:
-    linear-gradient(180deg, rgba(31, 38, 48, .96), rgba(13, 17, 23, .96)),
-    repeating-linear-gradient(180deg, transparent 0 18px, rgba(255, 255, 255, .025) 18px 19px);
-}
-
-.board-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  border-bottom: 1px solid var(--line-soft);
-  padding-bottom: 12px;
-}
-
-.value-pill {
-  min-height: 30px;
-  display: inline-flex;
-  align-items: center;
-  border-radius: 8px;
-  padding: 0 10px;
-  background: rgba(14, 203, 129, .1);
-  color: #9af5cb;
-  border: 1px solid rgba(14, 203, 129, .24);
-}
-
-.value-pill.amber {
-  background: rgba(240, 185, 11, .12);
-  color: #ffe18a;
-  border-color: rgba(240, 185, 11, .28);
-}
-
-.board-line {
-  height: 92px;
-  border-radius: 12px;
-  background:
-    linear-gradient(135deg, transparent 0 12%, rgba(14, 203, 129, .5) 12.5% 14%, transparent 14.5% 35%, rgba(240, 185, 11, .65) 35.5% 37%, transparent 37.5% 61%, rgba(246, 70, 93, .5) 61.5% 63%, transparent 63.5%),
-    linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, .015));
-  border: 1px solid var(--line-soft);
-}
-
-.depth-bars {
-  display: grid;
-  gap: 7px;
-}
-
-.depth-bars i {
-  width: var(--w);
-  height: 8px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(240, 185, 11, .86), rgba(14, 203, 129, .72));
-}
-
 .dashboard {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(360px, .72fr);
@@ -348,6 +288,10 @@ input:focus {
 
 .reward-card .stats {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.reward-card #rewardStats .stat:nth-child(n + 2) {
+  display: none;
 }
 
 .stat {
