@@ -63,6 +63,7 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     bool public swapEnabled = true;
     bool private inSwap;
     uint256 public swapThreshold;
+    uint256 public pendingTaxTokens;
     uint256 public tokenDividendPerShare;
     uint256 public lpDividendPerShare;
     uint256 public dividendReserve;
@@ -149,13 +150,13 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
         if (!tradingOpen && launchMode == LaunchMode.TIME && launchTime > 0 && block.timestamp >= launchTime) { tradingOpen = true; emit TradingOpened(block.timestamp); }
         bool exemptLimit = isExcludedFromLimits[from] || isExcludedFromLimits[to];
         if (!tradingOpen && !exemptLimit) revert("trading not open");
-        if (!inSwap && swapEnabled && from != pair && from != address(this)) { uint256 contractTokenBalance = balanceOf(address(this)); if (contractTokenBalance >= swapThreshold && swapThreshold > 0) _swapBack(contractTokenBalance); }
+        if (!inSwap && swapEnabled && from != pair && from != address(this)) { uint256 taxTokenBalance = pendingTaxTokens; if (taxTokenBalance >= swapThreshold && swapThreshold > 0) _swapBack(taxTokenBalance); }
         uint256 taxAmount = 0;
         if (!inSwap && !isExcludedFromFee[from] && !isExcludedFromFee[to]) {
             uint256 taxRate; if (from == pair) taxRate = buyTax; else if (to == pair) taxRate = sellTax; else taxRate = transferTax;
             if (taxRate > 0) taxAmount = amount * taxRate / DENOMINATOR;
         }
-        if (taxAmount > 0) { super._update(from, address(this), taxAmount); amount -= taxAmount; }
+        if (taxAmount > 0) { super._update(from, address(this), taxAmount); pendingTaxTokens += taxAmount; amount -= taxAmount; }
         if (buyLimitEnabled && from == pair && !isExcludedFromLimits[to]) { boughtAmount[to] += amount; require(boughtAmount[to] <= maxBuyAmountPerWallet, "buy limit"); }
         _accrueTokenDividend(from); _accrueTokenDividend(to); super._update(from, to, amount); _settleTokenDividend(from); _settleTokenDividend(to);
     }
@@ -164,7 +165,10 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
     function closeMint() external onlyOwner { mintEnabled = false; }
     function _swapBack(uint256 tokenAmount) internal lockSwap {
         uint256 totalShare = marketingShare + burnShare + lpShare + dividendShare; if (totalShare == 0 || tokenAmount == 0) return;
+        if (tokenAmount > pendingTaxTokens) tokenAmount = pendingTaxTokens;
+        if (tokenAmount == 0) return;
         if (tokenAmount > swapThreshold * 20) tokenAmount = swapThreshold * 20;
+        pendingTaxTokens -= tokenAmount;
         uint256 burnTokens = tokenAmount * burnShare / totalShare;
         uint256 lpTokens = tokenAmount * lpShare / totalShare;
         uint256 dividendTokens = tokenAmount * dividendShare / totalShare;
@@ -189,7 +193,7 @@ contract ModaFairMintTokenV1 is ERC20, Ownable, Pausable, ReentrancyGuard {
         }
         emit SwapBack(tokenAmount, received);
     }
-    function forceSwapBack() external onlyOwner { _swapBack(balanceOf(address(this))); }
+    function forceSwapBack() external onlyOwner { _swapBack(pendingTaxTokens); }
     function forceAddLiquidity(uint256 tokenAmount, uint256 fundAmount) external payable onlyOwner nonReentrant lockSwap { require(tokenAmount > 0 && fundAmount > 0, "zero amount"); _approve(address(this), address(router), tokenAmount); if (mintMode == MintMode.BNB) { require(msg.value == fundAmount, "bad BNB"); router.addLiquidityETH{value: fundAmount}(address(this), tokenAmount, 0, 0, owner(), block.timestamp); } else { IERC20(usdtAddress).safeTransferFrom(msg.sender, address(this), fundAmount); IERC20(usdtAddress).forceApprove(address(router), fundAmount); router.addLiquidity(address(this), usdtAddress, tokenAmount, fundAmount, 0, 0, owner(), block.timestamp); } }
     function _rewardBalance() internal view returns (uint256) { return mintMode == MintMode.BNB ? address(this).balance : IERC20(usdtAddress).balanceOf(address(this)); }
     function _sendReward(address to, uint256 amount) internal { if (amount == 0) return; if (mintMode == MintMode.BNB) payable(to).transfer(amount); else IERC20(usdtAddress).safeTransfer(to, amount); }
@@ -519,7 +523,7 @@ function readVanityConfig(form) {
 async function findCreate2Salt(factoryAddress, initCode, suffix) {
   const initCodeHash = ethers.keccak256(initCode);
   const normalizedSuffix = suffix.toLowerCase();
-  const max = 16 ** normalizedSuffix.length * 2;
+  const max = 10_000_000;
   for (let i = 0; i < max; i++) {
     const salt = ethers.keccak256(ethers.solidityPacked(["address", "uint256"], [state.account, BigInt(i)]));
     const address = ethers.getCreate2Address(factoryAddress, salt, initCodeHash);
