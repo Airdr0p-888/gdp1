@@ -4,9 +4,13 @@ const walletAddress = document.getElementById("walletAddress");
 const networkName = document.getElementById("networkName");
 const connectButton = document.getElementById("connectWallet");
 
-const disconnectedLabels = new Set(["", "未连接", "鏈繛鎺?", "未知", "鏈煡"]);
+const TEXT = {
+  disconnected: "\u672a\u8fde\u63a5",
+  unknown: "\u672a\u77e5",
+  connected: "\u5df2\u8fde\u63a5"
+};
 
-function injectedProvider() {
+function providerFromInjected() {
   const eth = window.ethereum;
   if (!eth) return null;
   if (Array.isArray(eth.providers)) {
@@ -17,61 +21,67 @@ function injectedProvider() {
   return eth;
 }
 
-function isWalletAddress(value) {
+function isAddress(value) {
   return /^0x[a-fA-F0-9]{40}$/.test(String(value || "").trim());
 }
 
-function markConnected(address) {
-  if (!isWalletAddress(address)) return;
+function setConnected(address) {
+  if (!isAddress(address) || !connectButton) return;
   if (walletAddress) walletAddress.textContent = address;
-  if (!connectButton) return;
-  connectButton.textContent = "已连接";
+  connectButton.textContent = TEXT.connected;
   connectButton.classList.add("connected");
   connectButton.disabled = true;
 }
 
-function syncConnectedButton() {
-  const value = (walletAddress?.textContent || "").trim();
-  if (isWalletAddress(value)) markConnected(value);
-}
-
-async function syncFromInjectedWallet() {
-  const provider = injectedProvider();
+async function readConnectedAccount() {
+  const provider = providerFromInjected();
   if (!provider?.request) return false;
-  let accounts = [];
   try {
-    accounts = await provider.request({ method: "eth_accounts" });
+    const accounts = await provider.request({ method: "eth_accounts" });
+    const account = accounts?.[0] || provider.selectedAddress;
+    if (!isAddress(account)) return false;
+    setConnected(account);
+    await readNetwork(provider);
+    return true;
   } catch {
     return false;
   }
-  const account = accounts?.[0] || provider.selectedAddress;
-  if (!isWalletAddress(account)) return false;
-  markConnected(account);
+}
+
+async function readNetwork(provider) {
+  if (!networkName || !provider?.request) return;
+  const current = (networkName.textContent || "").trim();
+  if (current && current !== TEXT.unknown) return;
   try {
     const chainIdHex = await provider.request({ method: "eth_chainId" });
     const chainId = Number.parseInt(chainIdHex, 16);
-    const currentNetwork = (networkName?.textContent || "").trim();
-    if (networkName && disconnectedLabels.has(currentNetwork)) {
-      networkName.textContent = chainId === 56 ? "BNB Smart Chain" : chainId === 97 ? "BNB Smart Chain Testnet" : `Chain ${chainId}`;
-    }
+    networkName.textContent = chainId === 56
+      ? "BNB Smart Chain"
+      : chainId === 97
+        ? "BNB Smart Chain Testnet"
+        : `Chain ${chainId}`;
   } catch {}
-  return true;
 }
 
-function watchWalletFor(ms = 15000) {
+function syncFromWalletText() {
+  const value = (walletAddress?.textContent || "").trim();
+  if (isAddress(value)) setConnected(value);
+}
+
+function watchAfterClick() {
   const started = Date.now();
   const timer = window.setInterval(async () => {
-    syncConnectedButton();
-    const synced = await syncFromInjectedWallet();
-    if (synced || Date.now() - started > ms) window.clearInterval(timer);
-  }, 500);
+    syncFromWalletText();
+    const done = await readConnectedAccount();
+    if (done || Date.now() - started > 20000) window.clearInterval(timer);
+  }, 700);
 }
 
-syncConnectedButton();
-syncFromInjectedWallet();
+syncFromWalletText();
+readConnectedAccount();
 
 if (walletAddress) {
-  new MutationObserver(syncConnectedButton).observe(walletAddress, {
+  new MutationObserver(syncFromWalletText).observe(walletAddress, {
     childList: true,
     characterData: true,
     subtree: true
@@ -79,9 +89,9 @@ if (walletAddress) {
 }
 
 connectButton?.addEventListener("click", () => {
-  window.setTimeout(() => watchWalletFor(20000), 300);
+  window.setTimeout(watchAfterClick, 400);
 });
 
 window.ethereum?.on?.("accountsChanged", (accounts) => {
-  if (isWalletAddress(accounts?.[0])) markConnected(accounts[0]);
+  if (isAddress(accounts?.[0])) setConnected(accounts[0]);
 });

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Mint Portal</title>
     <link rel="stylesheet" href="./mint2.css" />
-    <script type="module" src="./mint2.js?v=20260623-click-wallet-state"></script>
+    <script type="module" src="./mint2.js?v=20260623-stable-wallet-state"></script>
   </head>
   <body>
     <main class="page">
@@ -16,14 +16,14 @@
         </div>
         <div class="account-strip">
           <div class="account-chip">
-            <span>钱包</span>
-            <strong id="walletAddress">未连接</strong>
+            <span>&#38065;&#21253;</span>
+            <strong id="walletAddress">&#26410;&#36830;&#25509;</strong>
           </div>
           <div class="account-chip">
-            <span>网络</span>
-            <strong id="networkName">未知</strong>
+            <span>&#32593;&#32476;</span>
+            <strong id="networkName">&#26410;&#30693;</strong>
           </div>
-          <button id="connectWallet" class="connect-button">连接钱包</button>
+          <button id="connectWallet" class="connect-button">&#36830;&#25509;&#38065;&#21253;</button>
         </div>
       </header>
 
@@ -33,10 +33,10 @@
           <h1 id="tokenTitle">Mint Portal</h1>
           <div class="contract-card">
             <label>
-              <span>合约地址</span>
-              <input id="contractAddress" placeholder="输入 Token 合约地址" />
+              <span>&#21512;&#32422;&#22320;&#22336;</span>
+              <input id="contractAddress" placeholder="Token contract address" />
             </label>
-            <button id="loadContract" class="ghost-button">读取合约</button>
+            <button id="loadContract" class="ghost-button">&#35835;&#21462;&#21512;&#32422;</button>
           </div>
         </article>
       </section>
@@ -46,27 +46,27 @@
           <div class="card-head">
             <div>
               <p class="eyebrow">Mint</p>
-              <h2>参与 Mint</h2>
+              <h2>&#21442;&#19982; Mint</h2>
             </div>
           </div>
           <div id="mintStats" class="stats"></div>
-          <button id="mintNow" class="action-button">立即 Mint</button>
+          <button id="mintNow" class="action-button">&#31435;&#21363; Mint</button>
         </article>
 
         <article class="trade-card reward-card">
           <div class="card-head">
             <div>
               <p class="eyebrow">Rewards</p>
-              <h2>领取分红</h2>
+              <h2>&#39046;&#21462;&#20998;&#32418;</h2>
             </div>
           </div>
           <div id="rewardStats" class="stats"></div>
-          <button id="claimDividends" class="ghost-button wide">领取分红</button>
+          <button id="claimDividends" class="ghost-button wide">&#39046;&#21462;&#20998;&#32418;</button>
         </article>
       </section>
 
       <pre id="log" class="sr-log" aria-live="polite"></pre>
-      <span id="mintModeBadge" class="sr-log">未读取</span>
+      <span id="mintModeBadge" class="sr-log">&#26410;&#35835;&#21462;</span>
       <span id="rewardUnitBadge" class="sr-log">-</span>
     </main>
   </body>
