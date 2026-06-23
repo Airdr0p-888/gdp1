@@ -3,6 +3,7 @@ import "./mint.js?v=20260623-connected-state";
 const walletAddress = document.getElementById("walletAddress");
 const networkName = document.getElementById("networkName");
 const connectButton = document.getElementById("connectWallet");
+
 const disconnectedLabels = new Set(["", "未连接", "鏈繛鎺?", "未知", "鏈煡"]);
 
 function injectedProvider() {
@@ -16,48 +17,41 @@ function injectedProvider() {
   return eth;
 }
 
-function shortAddress(address) {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+function isWalletAddress(value) {
+  return /^0x[a-fA-F0-9]{40}$/.test(String(value || "").trim());
 }
 
 function markConnected(address) {
-  if (walletAddress && address && !disconnectedLabels.has((walletAddress.textContent || "").trim())) {
-    address = walletAddress.textContent.trim();
-  }
-  if (walletAddress && address) walletAddress.textContent = address;
-  if (connectButton) {
-    connectButton.textContent = "已连接";
-    connectButton.classList.add("connected");
-    connectButton.disabled = true;
-  }
+  if (!isWalletAddress(address)) return;
+  if (walletAddress) walletAddress.textContent = address;
+  if (!connectButton) return;
+  connectButton.textContent = "已连接";
+  connectButton.classList.add("connected");
+  connectButton.disabled = true;
 }
 
 function syncConnectedButton() {
   const value = (walletAddress?.textContent || "").trim();
-  const connected = value && !disconnectedLabels.has(value);
-  if (!connected || !connectButton) return;
-  markConnected(value);
+  if (isWalletAddress(value)) markConnected(value);
 }
 
-async function syncFromInjectedWallet(requestPermission = false) {
+async function syncFromInjectedWallet() {
   const provider = injectedProvider();
   if (!provider?.request) return false;
   let accounts = [];
   try {
     accounts = await provider.request({ method: "eth_accounts" });
-    if ((!accounts || accounts.length === 0) && requestPermission) {
-      accounts = await provider.request({ method: "eth_requestAccounts" });
-    }
   } catch {
     return false;
   }
   const account = accounts?.[0] || provider.selectedAddress;
-  if (!account) return false;
+  if (!isWalletAddress(account)) return false;
   markConnected(account);
   try {
     const chainIdHex = await provider.request({ method: "eth_chainId" });
     const chainId = Number.parseInt(chainIdHex, 16);
-    if (networkName && disconnectedLabels.has((networkName.textContent || "").trim())) {
+    const currentNetwork = (networkName?.textContent || "").trim();
+    if (networkName && disconnectedLabels.has(currentNetwork)) {
       networkName.textContent = chainId === 56 ? "BNB Smart Chain" : chainId === 97 ? "BNB Smart Chain Testnet" : `Chain ${chainId}`;
     }
   } catch {}
@@ -68,12 +62,13 @@ function watchWalletFor(ms = 15000) {
   const started = Date.now();
   const timer = window.setInterval(async () => {
     syncConnectedButton();
-    const synced = await syncFromInjectedWallet(false);
+    const synced = await syncFromInjectedWallet();
     if (synced || Date.now() - started > ms) window.clearInterval(timer);
   }, 500);
 }
 
 syncConnectedButton();
+syncFromInjectedWallet();
 
 if (walletAddress) {
   new MutationObserver(syncConnectedButton).observe(walletAddress, {
@@ -84,16 +79,9 @@ if (walletAddress) {
 }
 
 connectButton?.addEventListener("click", () => {
-  watchWalletFor(20000);
-});
-
-window.addEventListener("load", () => {
-  watchWalletFor(12000);
-  setTimeout(() => syncFromInjectedWallet(true), 800);
+  window.setTimeout(() => watchWalletFor(20000), 300);
 });
 
 window.ethereum?.on?.("accountsChanged", (accounts) => {
-  if (accounts?.[0]) markConnected(accounts[0]);
+  if (isWalletAddress(accounts?.[0])) markConnected(accounts[0]);
 });
-
-watchWalletFor(12000);

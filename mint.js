@@ -70,6 +70,10 @@ async function connectWallet() {
   const injected = providerFromWallet();
   state.provider = new ethers.BrowserProvider(injected);
   await injected.request({ method: "eth_requestAccounts" });
+  await finishWalletConnection();
+}
+
+async function finishWalletConnection() {
   state.signer = await state.provider.getSigner();
   state.account = await state.signer.getAddress();
   const network = await state.provider.getNetwork();
@@ -77,6 +81,8 @@ async function connectWallet() {
   state.nativeSymbol = NETWORKS[chainId]?.native || network.name || "BNB";
   $("walletAddress").textContent = state.account;
   $("networkName").textContent = NETWORKS[chainId]?.name || `Chain ${chainId}`;
+  $("connectWallet").textContent = "已连接";
+  $("connectWallet").classList.add("connected");
   log(`钱包已连接：${short(state.account)}`);
 }
 
@@ -259,6 +265,17 @@ function bootAddress() {
   if (address) $("contractAddress").value = address;
 }
 
+async function autoConnectWallet() {
+  const injected = window.ethereum;
+  if (!injected) return;
+  const provider = providerFromWallet();
+  const accounts = await provider.request({ method: "eth_accounts" });
+  if (!accounts || accounts.length === 0) return;
+  state.provider = new ethers.BrowserProvider(provider);
+  await finishWalletConnection();
+  if (isAddress($("contractAddress").value)) await loadContract();
+}
+
 $("connectWallet").addEventListener("click", (event) => run(event.currentTarget, async () => {
   await connectWallet();
   if (isAddress($("contractAddress").value)) await loadContract();
@@ -278,3 +295,4 @@ window.ethereum?.on?.("accountsChanged", () => {
 window.ethereum?.on?.("chainChanged", () => location.reload());
 
 bootAddress();
+autoConnectWallet().catch((err) => log(err.message || String(err)));
