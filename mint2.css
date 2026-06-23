@@ -144,8 +144,8 @@ button:hover {
 }
 
 button:disabled {
-  opacity: .56;
-  cursor: wait;
+  opacity: .72;
+  cursor: not-allowed;
 }
 
 .connect-button,
@@ -160,9 +160,14 @@ button:disabled {
 }
 
 .connect-button.connected {
-  background: #1f2630;
-  color: var(--green);
-  border-color: rgba(14, 203, 129, .35);
+  background: #2b3139;
+  color: #d8dde6;
+  border-color: #3a424f;
+  box-shadow: none;
+}
+
+.connect-button.connected:disabled {
+  opacity: 1;
 }
 
 .action-button {
@@ -307,6 +312,11 @@ input:focus {
   background: #0d1117;
   padding: 12px;
   overflow-wrap: anywhere;
+}
+
+.mint-card #mintStats .stat:nth-child(2),
+.mint-card #mintStats .stat:nth-child(5) {
+  display: none;
 }
 
 .stat span {
