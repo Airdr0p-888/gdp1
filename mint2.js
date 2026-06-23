@@ -37,6 +37,8 @@ const NETWORKS = {
   97: { name: "BNB Smart Chain Testnet", native: "tBNB" }
 };
 
+const BSC_RPC = "https://bsc-dataseed.binance.org";
+
 const TEXT = {
   connect: "\u8fde\u63a5\u94b1\u5305",
   connected: "\u5df2\u8fde\u63a5",
@@ -52,6 +54,7 @@ const TEXT = {
   notMinted: "\u672a Mint",
   whitelistOk: "\u5df2\u5728\u767d\u540d\u5355",
   whitelistNo: "\u672a\u5728\u767d\u540d\u5355",
+  connectFirst: "\u8fde\u63a5\u540e\u663e\u793a",
   tokenReward: "\u6301\u5e01\u53ef\u9886",
   readContract: "\u8bf7\u5728\u94fe\u63a5\u4e2d\u5e26\u4e0a contract \u5408\u7ea6\u5730\u5740",
   badWallet: "\u6ca1\u6709\u68c0\u6d4b\u5230\u94b1\u5305\uff0c\u8bf7\u5728 MetaMask \u6216 TP \u94b1\u5305\u5185\u6253\u5f00\u3002"
@@ -158,48 +161,53 @@ function readContractAddress() {
 
 async function loadContract() {
   readContractAddress();
-  if (!state.signer) return;
-  state.contract = new ethers.Contract(state.contractAddress, TOKEN_ABI, state.signer);
+  if (!state.provider) {
+    if (window.ethereum) state.provider = new ethers.BrowserProvider(injectedProvider());
+    else state.provider = new ethers.JsonRpcProvider(BSC_RPC);
+  }
+  state.contract = new ethers.Contract(state.contractAddress, TOKEN_ABI, state.signer || state.provider);
   await refreshContract();
 }
 
 async function refreshContract() {
-  if (!state.contract || !state.account) return;
+  if (!state.contract) return;
   const [
     name,
     symbol,
     decimals,
-    balance,
     mode,
     mintPrice,
     mintedCount,
     maxMintCount,
-    mintEnabled,
-    hasMinted,
-    whitelistEnabled,
-    pendingToken
+    mintEnabled
   ] = await Promise.all([
     state.contract.name(),
     state.contract.symbol(),
     state.contract.decimals(),
-    state.contract.balanceOf(state.account),
     state.contract.mintMode(),
     state.contract.mintPrice(),
     state.contract.mintedCount(),
     state.contract.maxMintCount(),
-    state.contract.mintEnabled(),
-    state.contract.hasMinted(state.account),
-    state.contract.whitelistEnabled(),
-    state.contract.pendingTokenDividend(state.account)
+    state.contract.mintEnabled()
   ]);
 
   state.tokenDecimals = Number(decimals);
   state.rewardSymbol = Number(mode) === 0 ? state.nativeSymbol : "USDT";
   state.rewardDecimals = 18;
 
-  let qualification = hasMinted ? TEXT.minted : TEXT.notMinted;
-  if (whitelistEnabled && !hasMinted) {
-    qualification = await state.contract.whitelist(state.account) ? TEXT.whitelistOk : TEXT.whitelistNo;
+  let qualification = TEXT.connectFirst;
+  let pendingToken = 0n;
+  if (state.account) {
+    const [hasMinted, whitelistEnabled, userPendingToken] = await Promise.all([
+      state.contract.hasMinted(state.account),
+      state.contract.whitelistEnabled(),
+      state.contract.pendingTokenDividend(state.account)
+    ]);
+    qualification = hasMinted ? TEXT.minted : TEXT.notMinted;
+    if (whitelistEnabled && !hasMinted) {
+      qualification = await state.contract.whitelist(state.account) ? TEXT.whitelistOk : TEXT.whitelistNo;
+    }
+    pendingToken = userPendingToken;
   }
 
   if (Number(mode) === 1) {
@@ -218,7 +226,7 @@ async function refreshContract() {
     ["Hidden token per mint", ""],
     [TEXT.mintProgress, `${mintedCount.toString()} / ${maxMintCount.toString()}`],
     [TEXT.mintStatus, mintEnabled ? TEXT.enabled : TEXT.disabled],
-    ["Hidden balance", `${formatAmount(balance, state.tokenDecimals)} ${symbol}`],
+    ["Hidden balance", ""],
     [TEXT.qualification, qualification]
   ]);
 
@@ -278,6 +286,7 @@ async function run(button, fn) {
 function boot() {
   try {
     readContractAddress();
+    loadContract().catch((error) => log(error.shortMessage || error.message || String(error)));
   } catch (error) {
     log(error.message || String(error));
   }
@@ -285,8 +294,6 @@ function boot() {
   $("mintNow").addEventListener("click", (event) => run(event.currentTarget, mintNow));
   $("claimDividends").addEventListener("click", (event) => run(event.currentTarget, claimDividends));
   $("loadContract")?.addEventListener("click", (event) => run(event.currentTarget, loadContract));
-  window.ethereum?.on?.("accountsChanged", () => location.reload());
-  window.ethereum?.on?.("chainChanged", () => location.reload());
   trySilentConnect().catch(() => {});
 }
 
